@@ -4,8 +4,11 @@
   import { connect, Painter, type Credentials } from "./lib/viam";
   import { traceImage, letterbox, type Stroke } from "./lib/trace";
 
+  const VERSION = __APP_VERSION__;
+
   // ---- connection state ----
   let host = $state("");
+  let machineId = $state("");
   let credentials = $state<Credentials | null>(null);
   let client = $state<RobotClient | null>(null);
   let painter = $state<Painter | null>(null);
@@ -13,6 +16,10 @@
   let connecting = $state(false);
   let error = $state("");
   let log = $state<string[]>([]);
+
+  let machineConfigUrl = $derived(
+    machineId ? `https://app.viam.com/machine/${machineId}` : "",
+  );
 
   // manual connect form (local dev)
   let formHost = $state("");
@@ -28,13 +35,11 @@
   function discover(): [string, Credentials] | null {
     const parts = window.location.pathname.split("/");
     if (parts.length >= 3 && parts[1] === "machine") {
+      machineId = parts[2];
       const cookieValue = getCookie(parts[2]);
       if (cookieValue) {
         const v = JSON.parse(cookieValue);
-        return [
-          v.hostname,
-          { type: "api-key", payload: v.key, authEntity: v.id },
-        ];
+        return [v.hostname, { type: "api-key", payload: v.key, authEntity: v.id }];
       }
     }
     const saved = getCookie("light-painting-host");
@@ -72,12 +77,9 @@
       "light-painting-host",
       JSON.stringify({ hostname: formHost, key: formKey, id: formKeyId }),
     );
-    doConnect(formHost, {
-      type: "api-key",
-      payload: formKey,
-      authEntity: formKeyId,
-    });
+    doConnect(formHost, { type: "api-key", payload: formKey, authEntity: formKeyId });
   }
+
 
   const found = discover();
   if (found) {
@@ -105,7 +107,7 @@
         approach: p.approach ?? { x: 1, y: 0, z: 0 },
         up: p.up ?? { x: 0, y: 0, z: 1 },
       };
-      addLog(`plane: ${plane.width_mm}x${plane.height_mm}mm @ ${JSON.stringify(plane.origin)}`);
+      addLog(`plane ${plane.width_mm}×${plane.height_mm}mm @ ${JSON.stringify(plane.origin)}`);
     } catch (e) {
       addLog(`get_plane failed: ${e}`);
     }
@@ -124,6 +126,7 @@
 
   // ---- image + tracing state ----
   let img = $state<HTMLImageElement | null>(null);
+  let imgName = $state("");
   let imgAspect = $state(1);
   let strokes = $state<Stroke[]>([]);
   let threshold = $state(80);
@@ -135,6 +138,7 @@
   function onFile(e: Event) {
     const file = (e.target as HTMLInputElement).files?.[0];
     if (!file) return;
+    imgName = file.name;
     const image = new Image();
     image.onload = () => {
       img = image;
@@ -156,20 +160,25 @@
   // Draw the image with the traced strokes overlaid (in image space).
   function drawPreview() {
     const c = previewCanvas;
-    if (!c || !img) return;
-    const W = 480;
-    const H = Math.round(W / imgAspect);
+    if (!c) return;
+    const W = 520;
+    const H = img ? Math.round(W / imgAspect) : 300;
     c.width = W;
     c.height = H;
     const ctx = c.getContext("2d");
     if (!ctx) return;
-    ctx.fillStyle = "#000";
-    ctx.fillRect(0, 0, W, H);
-    ctx.globalAlpha = 0.5;
-    ctx.drawImage(img, 0, 0, W, H);
-    ctx.globalAlpha = 1;
-    ctx.strokeStyle = "#a855f7";
-    ctx.lineWidth = 1.5;
+    ctx.fillStyle = "#08070500";
+    ctx.clearRect(0, 0, W, H);
+    if (img) {
+      ctx.globalAlpha = 0.42;
+      ctx.drawImage(img, 0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+    ctx.strokeStyle = "#ffce4a";
+    ctx.shadowColor = "rgba(255,206,74,0.8)";
+    ctx.shadowBlur = 6;
+    ctx.lineWidth = 1.4;
+    ctx.lineJoin = "round";
     for (const s of strokes) {
       ctx.beginPath();
       s.points.forEach((p, i) => {
@@ -180,6 +189,7 @@
       });
       ctx.stroke();
     }
+    ctx.shadowBlur = 0;
   }
 
   let painting = $state(false);
@@ -189,9 +199,9 @@
     painting = true;
     try {
       const mapped = letterbox(strokes, imgAspect, planeAspect);
-      addLog(`painting ${mapped.length} stroke(s)...`);
+      addLog(`exposing ${mapped.length} stroke(s)…`);
       const res = (await painter.paintPath(mapped)) as any;
-      addLog(`done: ${res.strokes} strokes / ${res.points} points`);
+      addLog(`done · ${res.strokes} strokes / ${res.points} points`);
     } catch (e) {
       addLog(`paint failed: ${e}`);
     } finally {
@@ -230,187 +240,404 @@
   }
 </script>
 
-<main>
-  <header>
-    <h1>🖌️ Light Painting</h1>
-    {#if host}<span class="badge">{host}</span>{/if}
+<div class="app">
+  <header class="masthead">
+    <div class="brand">
+      <div class="wordmark">LIGHT<span>PAINTING</span></div>
+      <div class="tagline">long-exposure light plotter</div>
+    </div>
+    <div class="meta">
+      <span class="chip">v{VERSION}</span>
+      {#if host}
+        <span class="status"><i class="dot" class:live={client}></i>{host}</span>
+      {/if}
+      {#if machineConfigUrl}
+        <a class="btnlink" href={machineConfigUrl} target="_blank" rel="noreferrer">
+          machine config <span class="arr">↗</span>
+        </a>
+      {/if}
+    </div>
   </header>
 
   {#if error}<p class="error">{error}</p>{/if}
 
   {#if !client}
-    <section class="card connect">
-      <h2>Connect to a machine</h2>
+    <section class="panel connect">
+      <div class="phead"><span class="idx">00</span><h2>Connect</h2></div>
       <p class="hint">
-        When served as a Viam Application this fills in automatically. For local
-        development, paste an API key below.
+        Served as a Viam Application this fills in automatically. For local development,
+        paste an API key.
       </p>
-      <div class="field"><label for="h">Host</label><input id="h" type="text" bind:value={formHost} placeholder="my-machine.abcd.viam.cloud" /></div>
-      <div class="field"><label for="i">API Key ID</label><input id="i" type="text" bind:value={formKeyId} /></div>
-      <div class="field"><label for="k">API Key</label><input id="k" type="password" bind:value={formKey} /></div>
-      <div class="field"><label for="s">Service name</label><input id="s" type="text" bind:value={serviceName} /></div>
+      <div class="field"><label for="h">host</label><input id="h" type="text" bind:value={formHost} placeholder="my-machine.abcd.viam.cloud" /></div>
+      <div class="field"><label for="i">api key id</label><input id="i" type="text" bind:value={formKeyId} /></div>
+      <div class="field"><label for="k">api key</label><input id="k" type="password" bind:value={formKey} /></div>
+      <div class="field"><label for="s">service name</label><input id="s" type="text" bind:value={serviceName} /></div>
       <button class="primary" onclick={saveAndConnect} disabled={connecting}>
-        {connecting ? "Connecting…" : "Connect"}
+        {connecting ? "connecting…" : "connect"}
       </button>
     </section>
   {:else}
     <div class="grid">
-      <section class="card">
-        <h2>1 · Photo</h2>
-        <input type="file" accept="image/*" onchange={onFile} />
-        <canvas bind:this={previewCanvas} class="preview"></canvas>
+      <section class="panel">
+        <div class="phead"><span class="idx">01</span><h2>Source</h2>{#if imgName}<span class="tag">{imgName}</span>{/if}</div>
+        <label class="filepick">
+          <input type="file" accept="image/*" onchange={onFile} />
+          <span>choose photo</span>
+        </label>
+        <div class="frame"><canvas bind:this={previewCanvas} class="preview"></canvas></div>
       </section>
 
-      <section class="card">
-        <h2>2 · Trace</h2>
-        <div class="slider"><label>Edge threshold: {threshold}</label><input type="range" min="10" max="255" bind:value={threshold} /></div>
-        <div class="slider"><label>Resolution: {maxDim}px</label><input type="range" min="60" max="320" step="10" bind:value={maxDim} /></div>
-        <div class="slider"><label>Simplify: {simplifyPx}px</label><input type="range" min="0" max="5" step="0.5" bind:value={simplifyPx} /></div>
-        <div class="slider"><label>Min stroke: {minStroke}</label><input type="range" min="2" max="30" bind:value={minStroke} /></div>
-        <button onclick={trace} disabled={!img}>Trace image</button>
-        <p class="hint">{strokes.length} stroke(s)</p>
+      <section class="panel">
+        <div class="phead"><span class="idx">02</span><h2>Trace</h2><span class="tag">{strokes.length} strokes</span></div>
+        <div class="slider"><label>edge threshold<b>{threshold}</b></label><input type="range" min="10" max="255" bind:value={threshold} /></div>
+        <div class="slider"><label>resolution<b>{maxDim}px</b></label><input type="range" min="60" max="320" step="10" bind:value={maxDim} /></div>
+        <div class="slider"><label>simplify<b>{simplifyPx}px</b></label><input type="range" min="0" max="5" step="0.5" bind:value={simplifyPx} /></div>
+        <div class="slider"><label>min stroke<b>{minStroke}</b></label><input type="range" min="2" max="30" bind:value={minStroke} /></div>
+        <button onclick={trace} disabled={!img}>trace image</button>
       </section>
 
-      <section class="card">
-        <h2>3 · Drawing plane <small>(adjustable)</small></h2>
-        <div class="row">
-          <div class="field sm"><label>origin x</label><input type="number" bind:value={plane.origin.x} /></div>
-          <div class="field sm"><label>origin y</label><input type="number" bind:value={plane.origin.y} /></div>
-          <div class="field sm"><label>origin z</label><input type="number" bind:value={plane.origin.z} /></div>
+      <section class="panel">
+        <div class="phead"><span class="idx">03</span><h2>Canvas</h2><span class="tag">aspect {planeAspect.toFixed(2)}</span></div>
+        <div class="grp"><span class="grplabel">origin (mm)</span>
+          <div class="row">
+            <div class="field sm"><label>x</label><input type="number" bind:value={plane.origin.x} /></div>
+            <div class="field sm"><label>y</label><input type="number" bind:value={plane.origin.y} /></div>
+            <div class="field sm"><label>z</label><input type="number" bind:value={plane.origin.z} /></div>
+          </div>
         </div>
-        <div class="row">
-          <div class="field sm"><label>width mm</label><input type="number" bind:value={plane.width_mm} /></div>
-          <div class="field sm"><label>height mm</label><input type="number" bind:value={plane.height_mm} /></div>
+        <div class="grp"><span class="grplabel">size (mm)</span>
+          <div class="row">
+            <div class="field sm"><label>width</label><input type="number" bind:value={plane.width_mm} /></div>
+            <div class="field sm"><label>height</label><input type="number" bind:value={plane.height_mm} /></div>
+          </div>
         </div>
-        <div class="row">
-          <div class="field sm"><label>approach x</label><input type="number" bind:value={plane.approach.x} /></div>
-          <div class="field sm"><label>approach y</label><input type="number" bind:value={plane.approach.y} /></div>
-          <div class="field sm"><label>approach z</label><input type="number" bind:value={plane.approach.z} /></div>
+        <div class="grp"><span class="grplabel">approach</span>
+          <div class="row">
+            <div class="field sm"><label>x</label><input type="number" bind:value={plane.approach.x} /></div>
+            <div class="field sm"><label>y</label><input type="number" bind:value={plane.approach.y} /></div>
+            <div class="field sm"><label>z</label><input type="number" bind:value={plane.approach.z} /></div>
+          </div>
         </div>
         <div class="actions">
-          <button onclick={applyPlane}>Apply plane</button>
-          <button onclick={refreshPlane}>Reload</button>
+          <button onclick={applyPlane}>apply</button>
+          <button onclick={refreshPlane}>reload</button>
         </div>
       </section>
 
-      <section class="card">
-        <h2>4 · Paint</h2>
+      <section class="panel expose">
+        <div class="phead"><span class="idx">04</span><h2>Expose</h2></div>
+        <button class="primary big" onclick={paint} disabled={painting || strokes.length === 0}>
+          {painting ? "exposing…" : "▸ paint"}
+        </button>
         <div class="actions">
-          <button class="primary" onclick={paint} disabled={painting || strokes.length === 0}>
-            {painting ? "Painting…" : "Paint"}
-          </button>
-          <button onclick={home} disabled={painting}>Home</button>
-          <button class="danger" onclick={stop}>Stop</button>
-          <button onclick={clearVisuals}>Clear visuals</button>
+          <button onclick={home} disabled={painting}>home</button>
+          <button class="danger" onclick={stop}>stop</button>
+          <button onclick={clearVisuals}>clear visuals</button>
         </div>
-        <p class="hint">Painted trajectories persist in the 3D scene; Clear visuals erases them.</p>
+        <p class="hint">Painted trajectories persist in the 3D scene — clear visuals erases them.</p>
       </section>
     </div>
 
-    <section class="card log">
-      <h2>Log</h2>
-      <ul>{#each log as line}<li>{line}</li>{/each}</ul>
+    <section class="panel logpanel">
+      <div class="phead"><span class="idx">··</span><h2>Capture log</h2></div>
+      <ul class="log">{#each log as line}<li>{line}</li>{/each}</ul>
     </section>
   {/if}
-</main>
+</div>
 
 <style>
-  main {
-    max-width: 1100px;
+  .app {
+    position: relative;
+    z-index: 1;
+    max-width: 1180px;
     margin: 0 auto;
-    padding: 20px;
+    padding: 28px 22px 60px;
   }
-  header {
+
+  /* ---- masthead ---- */
+  .masthead {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 20px;
+    flex-wrap: wrap;
+    padding-bottom: 18px;
+    margin-bottom: 26px;
+    border-bottom: 1px solid var(--line);
+    animation: rise 0.6s both;
+  }
+  .wordmark {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-size: clamp(38px, 7vw, 72px);
+    line-height: 0.84;
+    letter-spacing: 0.01em;
+    color: var(--ink);
+    text-shadow: 0 0 26px rgba(255, 206, 74, 0.18);
+  }
+  .wordmark span {
+    display: block;
+    color: var(--amber);
+    text-shadow: 0 0 22px rgba(255, 206, 74, 0.45);
+  }
+  .tagline {
+    margin-top: 8px;
+    font-size: 11px;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .meta {
     display: flex;
     align-items: center;
     gap: 12px;
-    margin-bottom: 16px;
+    flex-wrap: wrap;
   }
-  h1 {
-    font-size: 22px;
-    margin: 0;
+  .chip {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    color: var(--amber);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 4px 11px;
   }
-  h2 {
-    font-size: 15px;
-    margin: 0 0 10px;
-    color: #c9b8f0;
+  .status {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 7px;
   }
-  .badge {
-    font-size: 12px;
-    color: #9a9ab8;
-    background: #1a1a28;
-    padding: 3px 8px;
-    border-radius: 10px;
+  .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #5a5347;
   }
+  .dot.live {
+    background: var(--amber);
+    box-shadow: var(--glow-amber);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  .btnlink {
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--violet);
+    border: 1px solid rgba(166, 132, 255, 0.32);
+    border-radius: 2px;
+    padding: 8px 13px;
+    transition: all 0.18s ease;
+  }
+  .btnlink:hover {
+    border-color: var(--violet);
+    box-shadow: 0 0 18px rgba(166, 132, 255, 0.3);
+  }
+  .arr {
+    opacity: 0.8;
+  }
+
+  /* ---- panels / grid ---- */
   .grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 14px;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 16px;
   }
-  .card {
-    background: #14141f;
-    border: 1px solid #26263a;
-    border-radius: 10px;
-    padding: 14px;
+  .panel {
+    position: relative;
+    background: var(--panel);
+    backdrop-filter: blur(6px);
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 18px;
+    animation: rise 0.6s both;
   }
-  .connect {
-    max-width: 440px;
+  .panel::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 4px;
+    pointer-events: none;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
   }
+  .grid .panel:nth-child(1) { animation-delay: 0.05s; }
+  .grid .panel:nth-child(2) { animation-delay: 0.12s; }
+  .grid .panel:nth-child(3) { animation-delay: 0.19s; }
+  .grid .panel:nth-child(4) { animation-delay: 0.26s; }
+  .logpanel { animation-delay: 0.32s; margin-top: 16px; }
+  .connect { max-width: 460px; animation-delay: 0.05s; }
+  .expose { display: flex; flex-direction: column; }
+
+  .phead {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .idx {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 22px;
+    color: var(--amber);
+    opacity: 0.85;
+    min-width: 26px;
+  }
+  h2 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    font-size: 21px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin: 0;
+    color: var(--ink);
+  }
+  .tag {
+    margin-left: auto;
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--line-soft);
+    border-radius: 999px;
+    padding: 3px 9px;
+    white-space: nowrap;
+  }
+
+  /* ---- inputs ---- */
   .field {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
     margin-bottom: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
   }
-  .field.sm input {
-    width: 90px;
+  .field label,
+  .grplabel {
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
   }
-  .row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 8px;
-  }
+  .field.sm input { width: 100%; }
+  .grp { margin-bottom: 12px; }
+  .grplabel { display: block; margin-bottom: 6px; }
+  .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .grp:nth-of-type(2) .row { grid-template-columns: repeat(2, 1fr); }
+
   .slider {
+    margin-bottom: 13px;
+  }
+  .slider label {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin-bottom: 8px;
+    justify-content: space-between;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 7px;
   }
-  .slider input {
-    width: 100%;
+  .slider label b {
+    color: var(--amber);
+    font-weight: 700;
   }
+  .slider input { width: 100%; }
+
   .actions {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+    margin-top: 6px;
+  }
+  .expose .big {
+    font-size: 15px;
+    padding: 14px;
+    margin-bottom: 10px;
+    letter-spacing: 0.14em;
+  }
+
+  /* ---- file picker ---- */
+  .filepick {
+    display: inline-block;
+    cursor: pointer;
+  }
+  .filepick input { display: none; }
+  .filepick span {
+    display: inline-block;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--amber-bright);
+    border: 1px dashed var(--line);
+    border-radius: 2px;
+    padding: 9px 16px;
+    transition: all 0.18s ease;
+  }
+  .filepick:hover span {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+
+  /* ---- preview ---- */
+  .frame {
+    margin-top: 14px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    background:
+      linear-gradient(rgba(255, 206, 74, 0.015), transparent),
+      repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 22px),
+      repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.02) 0 1px, transparent 1px 22px),
+      #060504;
+    padding: 10px;
+    overflow: hidden;
   }
   .preview {
     width: 100%;
-    margin-top: 10px;
-    border-radius: 6px;
-    background: #000;
+    display: block;
+    border-radius: 2px;
   }
-  .hint {
-    font-size: 12px;
-    color: #8a8aa6;
-  }
-  .error {
-    color: #f87171;
-  }
+
+  /* ---- log ---- */
   .log {
-    margin-top: 14px;
-  }
-  .log ul {
     list-style: none;
     margin: 0;
     padding: 0;
-    font-family: ui-monospace, monospace;
     font-size: 12px;
-    max-height: 160px;
+    max-height: 170px;
     overflow-y: auto;
   }
   .log li {
-    padding: 2px 0;
-    color: #9a9ab8;
+    padding: 3px 0;
+    color: var(--muted);
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .log li:first-child {
+    color: var(--amber-bright);
+  }
+
+  .hint {
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--muted);
+    margin: 10px 0 0;
+  }
+  .error {
+    font-size: 12px;
+    color: var(--danger);
+    border: 1px solid rgba(255, 111, 94, 0.3);
+    border-radius: 3px;
+    padding: 10px 12px;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
+  @media (max-width: 760px) {
+    .grid { grid-template-columns: 1fr; }
   }
 </style>
