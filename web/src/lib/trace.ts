@@ -10,8 +10,15 @@ export interface Pt {
   v: number;
 }
 
+export interface RGB {
+  r: number;
+  g: number;
+  b: number;
+}
+
 export interface Stroke {
   points: Pt[];
+  color?: RGB; // source color (e.g. an SVG path's fill/stroke)
 }
 
 export interface TraceOptions {
@@ -189,8 +196,8 @@ export function traceSvg(svgText: string, opts: SvgTraceOptions): TraceResult {
 
     // First pass: sample every element into raw sub-strokes (in viewport coords
     // via getCTM, which includes Inkscape's group transforms), splitting at
-    // subpath gaps, and track the overall bounding box.
-    const rawStrokes: [number, number][][] = [];
+    // subpath gaps, tracking the overall bbox and each element's source color.
+    const rawStrokes: { pts: [number, number][]; color?: RGB }[] = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
 
     els.forEach((node) => {
@@ -203,6 +210,7 @@ export function traceSvg(svgText: string, opts: SvgTraceOptions): TraceResult {
       }
       if (!isFinite(len) || len <= 0) return;
 
+      const color = elementColor(geo);
       const ctm = geo.getCTM();
       const n = Math.max(16, Math.min(900, Math.ceil(len / step)));
       // A path can contain multiple disconnected subpaths (e.g. a letter's outer
@@ -214,7 +222,7 @@ export function traceSvg(svgText: string, opts: SvgTraceOptions): TraceResult {
       let sub: [number, number][] = [];
       let px = 0, py = 0, havePrev = false;
       const flush = () => {
-        if (sub.length >= 2) rawStrokes.push(sub);
+        if (sub.length >= 2) rawStrokes.push({ pts: sub, color });
         sub = [];
       };
       for (let i = 0; i <= n; i++) {
@@ -239,12 +247,12 @@ export function traceSvg(svgText: string, opts: SvgTraceOptions): TraceResult {
     const h = maxY - minY;
     if (!(w > 0) || !(h > 0)) throw new Error("traced SVG has no extent");
     for (const sub of rawStrokes) {
-      const norm = sub.map(
+      const norm = sub.pts.map(
         ([x, y]) => [(x - minX) / w, (y - minY) / h] as [number, number],
       );
       const simp = rdp(norm, eps);
       if (simp.length >= opts.minStroke) {
-        strokes.push({ points: simp.map(([u, v]) => ({ u, v })) });
+        strokes.push({ points: simp.map(([u, v]) => ({ u, v })), color: sub.color });
       }
     }
 
@@ -252,6 +260,22 @@ export function traceSvg(svgText: string, opts: SvgTraceOptions): TraceResult {
   } finally {
     document.body.removeChild(holder);
   }
+}
+
+// elementColor reads an SVG element's resolved fill color (else its stroke).
+function elementColor(el: Element): RGB | undefined {
+  const cs = getComputedStyle(el);
+  return parseCssColor(cs.fill) ?? parseCssColor(cs.stroke);
+}
+
+function parseCssColor(v: string): RGB | undefined {
+  if (!v || v === "none") return undefined;
+  const m = v.match(/rgba?\(([^)]+)\)/);
+  if (!m) return undefined;
+  const p = m[1].split(",").map((s) => parseFloat(s.trim()));
+  if (p.length < 3) return undefined;
+  if (p.length >= 4 && p[3] === 0) return undefined; // fully transparent
+  return { r: Math.round(p[0]), g: Math.round(p[1]), b: Math.round(p[2]) };
 }
 
 // Ramer-Douglas-Peucker polyline simplification.
@@ -313,5 +337,6 @@ export function letterbox(
       u: offU + p.u * scaleU,
       v: offV + p.v * scaleV,
     })),
+    color: s.color,
   }));
 }

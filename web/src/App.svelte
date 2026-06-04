@@ -127,6 +127,12 @@
     if (!file) return;
     imgName = file.name;
     isSvg = file.name.toLowerCase().endsWith(".svg") || file.type === "image/svg+xml";
+    // Default to the SVG's own colors for vector art; raster has no per-stroke color.
+    if (isSvg) {
+      for (const l of layers) l.mode = "original";
+    } else {
+      for (const l of layers) if (l.mode === "original") l.mode = "solid";
+    }
     const image = new Image();
     image.onload = () => {
       img = image;
@@ -145,7 +151,7 @@
   }
 
   // ---- layers ----
-  type ColorMode = "solid" | "rainbow";
+  type ColorMode = "solid" | "rainbow" | "original";
   interface Layer {
     id: number;
     name: string;
@@ -262,11 +268,15 @@
   }
   const rgbCss = (c: { r: number; g: number; b: number }) => `rgb(${c.r},${c.g},${c.b})`;
 
-  function pointColor(layer: Layer, i: number, n: number) {
+  // Color for a point of a stroke under a layer's color mode (intensity applied).
+  function colorAt(layer: Layer, stroke: Stroke, i: number, n: number) {
     if (layer.mode === "rainbow") {
-      return hsvToRgb(n > 1 ? i / (n - 1) : 0, 1, layer.intensity);
+      return scaleRgb(hsvToRgb(n > 1 ? i / (n - 1) : 0, 1, 1), layer.intensity);
     }
-    return scaleRgb(hexToRgb(layer.color), layer.intensity);
+    if (layer.mode === "original" && stroke.color) {
+      return scaleRgb(stroke.color, layer.intensity);
+    }
+    return scaleRgb(hexToRgb(layer.color), layer.intensity); // solid (or fallback)
   }
 
   // ---- preview ----
@@ -280,7 +290,10 @@
     const ctx = c.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
-    if (img) {
+    // For raster sources, fade the photo behind the trace. For SVG the strokes
+    // (often in their own colors) are the drawing, and the rendered raster would
+    // be at a different aspect, so skip it.
+    if (img && !isSvg) {
       ctx.globalAlpha = 0.38;
       ctx.drawImage(img, 0, 0, W, H);
       ctx.globalAlpha = 1;
@@ -293,7 +306,7 @@
         const n = s.points.length;
         for (let i = 1; i < n; i++) {
           const a = s.points[i - 1], b = s.points[i];
-          ctx.strokeStyle = rgbCss(pointColor(layer, i, n));
+          ctx.strokeStyle = rgbCss(colorAt(layer, s, i, n));
           ctx.shadowColor = ctx.strokeStyle;
           ctx.shadowBlur = 6;
           ctx.beginPath();
@@ -325,10 +338,11 @@
           const n = s.points.length;
           if (layer.mode === "rainbow") {
             payload.push({
-              points: s.points.map((p, i) => ({ u: p.u, v: p.v, color: pointColor(layer, i, n) })),
+              points: s.points.map((p, i) => ({ u: p.u, v: p.v, color: colorAt(layer, s, i, n) })),
             });
           } else {
-            payload.push({ points: s.points, color: pointColor(layer, 0, n) });
+            // solid / original: one color per stroke
+            payload.push({ points: s.points, color: colorAt(layer, s, 0, n) });
           }
         }
       }
@@ -437,14 +451,17 @@
                 <input class="lname" type="text" bind:value={layer.name} />
                 {#if layer.mode === "solid"}
                   <input class="swatch" type="color" bind:value={layer.color} />
-                {:else}
+                {:else if layer.mode === "rainbow"}
                   <span class="rainbowchip">🌈</span>
+                {:else}
+                  <span class="origchip">art</span>
                 {/if}
                 <span class="cnt">{layer.strokes.length}</span>
                 <button class="x" onclick={() => removeLayer(layer.id)} title="remove">✕</button>
               </div>
               <div class="row2">
                 <select bind:value={layer.mode}>
+                  {#if isSvg}<option value="original">original</option>{/if}
                   <option value="solid">solid</option>
                   <option value="rainbow">rainbow</option>
                 </select>
@@ -544,6 +561,7 @@
   .lname { flex: 1; min-width: 0; font-size: 12px; padding: 5px 7px; }
   .swatch { width: 30px; height: 24px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: transparent; cursor: pointer; }
   .rainbowchip { font-size: 16px; }
+  .origchip { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--violet); border: 1px solid rgba(166, 132, 255, 0.32); border-radius: 999px; padding: 2px 8px; }
   .cnt { font-size: 10px; color: var(--muted); min-width: 18px; text-align: right; }
   .x { padding: 4px 8px; font-size: 11px; color: var(--danger); border-color: rgba(255,111,94,0.3); }
   .row2 { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
