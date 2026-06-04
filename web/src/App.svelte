@@ -170,6 +170,12 @@
     return () => clearTimeout(traceTimer);
   });
 
+  // Redraw the preview overlay when the paint color changes.
+  $effect(() => {
+    void paintColor;
+    drawPreview();
+  });
+
   // Draw the image with the traced strokes overlaid (in image space).
   function drawPreview() {
     const c = previewCanvas;
@@ -187,9 +193,9 @@
       ctx.drawImage(img, 0, 0, W, H);
       ctx.globalAlpha = 1;
     }
-    ctx.strokeStyle = "#ffce4a";
-    ctx.shadowColor = "rgba(255,206,74,0.8)";
-    ctx.shadowBlur = 6;
+    ctx.strokeStyle = paintColor;
+    ctx.shadowColor = paintColor;
+    ctx.shadowBlur = 7;
     ctx.lineWidth = 1.4;
     ctx.lineJoin = "round";
     for (const s of strokes) {
@@ -206,12 +212,22 @@
   }
 
   let painting = $state(false);
+  let paintColor = $state("#ff36c2"); // LED / paint color
+
+  function hexToRgb(hex: string) {
+    const n = parseInt(hex.replace("#", ""), 16);
+    return { r: (n >> 16) & 255, g: (n >> 8) & 255, b: n & 255 };
+  }
 
   async function paint() {
     if (!painter || strokes.length === 0) return;
     painting = true;
     try {
-      const mapped = letterbox(strokes, imgAspect, planeAspect);
+      const rgb = hexToRgb(paintColor);
+      const mapped = letterbox(strokes, imgAspect, planeAspect).map((s) => ({
+        ...s,
+        color: rgb,
+      }));
       addLog(`exposing ${mapped.length} stroke(s)…`);
       const res = (await painter.paintPath(mapped)) as any;
       addLog(`done · ${res.strokes} strokes / ${res.points} points`);
@@ -343,6 +359,10 @@
 
       <section class="panel expose">
         <div class="phead"><span class="idx">04</span><h2>Expose</h2></div>
+        <label class="color">
+          <input type="color" bind:value={paintColor} />
+          <span>light color <b style="color:{paintColor}">{paintColor}</b></span>
+        </label>
         <button class="primary big" onclick={paint} disabled={painting || strokes.length === 0}>
           {painting ? "exposing…" : "▸ paint"}
         </button>
@@ -664,6 +684,27 @@
   }
   .toggle:hover span {
     color: var(--amber);
+  }
+
+  .color {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .color input[type="color"] {
+    width: 34px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: transparent;
+    cursor: pointer;
   }
 
   @keyframes rise {

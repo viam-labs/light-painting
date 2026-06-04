@@ -22,7 +22,13 @@ in-browser trace (`web/src/lib/trace.ts`, dependency-free Sobel + RDP) → `doCo
 points onto the plane so the plane stays adjustable without re-tracing.
 
 `DoCommand` verbs: `get_plane`, `set_plane`, `paint_path`, `home`, `stop`, `clear_visuals`,
-`set_color` (LED stub).
+`set_color`.
+
+**LED:** the optional `led` config attribute names a generic component (an end-effector
+light, e.g. a `viam:neotrinkey:trinkey` from the [neotrinkey](https://github.com/viam-labs/neotrinkey)
+module). The controller calls its `set_color` per stroke (in the stroke's color) and `off`
+during travel; `set_color`/paint colors come from the web app's color picker via each
+stroke's `color` field.
 
 ## Build / test
 

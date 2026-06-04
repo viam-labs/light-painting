@@ -58,6 +58,9 @@ service**.
 - `drawing_plane.mirror` flips the image left-right — enable it when the long-exposure
   camera views the plane from behind the arm ("paint from the back").
 - `scene` (optional) names a `painting-scene` visualizer to draw into (see below).
+- `led` (optional) names an end-effector LED (a generic component, e.g. a
+  [`viam:neotrinkey:trinkey`](https://github.com/viam-labs/neotrinkey)). When set, the LED is
+  lit with each stroke's color while drawing and turned off during travel moves.
 
 ## Visualization
 
@@ -89,7 +92,7 @@ app) to erase them.
 | `home` | – | moves to the lifted plane center |
 | `stop` | – | cancels the in-flight paint and stops the arm |
 | `clear_visuals` | – | erases the plane + all painted strokes from the 3D scene |
-| `set_color` | `{r,g,b}` | **stub** — accepted, no-op until an LED is wired in |
+| `set_color` | `{r,g,b}` or `[r,g,b]` | sets the configured `led` to a color (no-op if no LED) |
 
 ## Build
 

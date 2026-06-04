@@ -20,6 +20,7 @@ import (
 
 	"github.com/golang/geo/r3"
 	"go.viam.com/rdk/components/arm"
+	genericcomp "go.viam.com/rdk/components/generic"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
@@ -63,7 +64,9 @@ type Config struct {
 	// MinSegmentMM down-samples dense traced paths: consecutive points closer
 	// than this (in mm on the plane) are dropped. Defaults to 5mm.
 	MinSegmentMM float64 `json:"min_segment_mm,omitempty"`
-	// LED is the name of an end-effector LED component (future use; unused today).
+	// LED is the name of an end-effector LED (generic component, e.g. a
+	// viam:neotrinkey:trinkey). When set, the LED is lit with each stroke's
+	// color while drawing and turned off during travel moves.
 	LED string `json:"led,omitempty"`
 	// Scene is the name of a painting-scene world_state_store visualizer to draw
 	// the plane and painted strokes into the Viam 3D viewer. Optional.
@@ -89,6 +92,9 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 		// in-process) before this controller.
 		deps = append(deps, worldstatestore.Named(cfg.Scene).String())
 	}
+	if cfg.LED != "" {
+		deps = append(deps, genericcomp.Named(cfg.LED).String())
+	}
 	return deps, nil, nil
 }
 
@@ -102,7 +108,8 @@ type controller struct {
 	armName string
 	lift    float64
 	minSeg  float64
-	scene   scene.Sink // nil when no visualizer is configured
+	scene   scene.Sink        // nil when no visualizer is configured
+	led     resource.Resource // nil when no LED is configured
 
 	// strokeSeq assigns persistent, monotonically-increasing visual stroke ids
 	// so strokes from successive paint runs accumulate rather than overwrite.
@@ -183,6 +190,15 @@ func newController(
 			logger.Warnf("scene %q not found in-process; visualization disabled", conf.Scene)
 		}
 	}
+
+	if conf.LED != "" {
+		ledRes, ok := deps[genericcomp.Named(conf.LED)]
+		if !ok {
+			return nil, fmt.Errorf("led %q not found in dependencies", conf.LED)
+		}
+		s.led = ledRes
+		logger.Infof("light painting with LED %q", conf.LED)
+	}
 	logger.Infof("light-painting-controller ready: arm=%q motion=%q plane(w=%.0f h=%.0f aspect=%.2f) lift=%.0fmm",
 		conf.Arm, msName, pl.width, pl.height, pl.aspect(), lift)
 	return s, nil
@@ -240,7 +256,7 @@ func (s *controller) DoCommand(ctx context.Context, cmd map[string]interface{}) 
 	case "stop":
 		return s.stop()
 	case "set_color":
-		return s.setColor(cmd)
+		return s.setColor(ctx, cmd)
 	case "clear_visuals":
 		return s.clearVisuals()
 	default:
@@ -291,12 +307,43 @@ func (s *controller) clearVisuals() (map[string]interface{}, error) {
 	return map[string]interface{}{"cleared": true}, nil
 }
 
-func (s *controller) setColor(cmd map[string]interface{}) (map[string]interface{}, error) {
-	// Forward-compatible no-op until an LED component is wired in.
-	return map[string]interface{}{
-		"ok":   true,
-		"note": "LED color control not yet wired; command accepted for forward-compatibility",
-	}, nil
+func (s *controller) setColor(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
+	if s.led == nil {
+		return map[string]interface{}{"ok": false, "note": "no LED configured"}, nil
+	}
+	color := cmd["color"]
+	if color == nil {
+		return nil, fmt.Errorf("set_color requires a color ([r,g,b] or {r,g,b})")
+	}
+	resp, err := s.led.DoCommand(ctx, map[string]interface{}{"command": "set_color", "color": color})
+	if err != nil {
+		return nil, fmt.Errorf("led set_color: %w", err)
+	}
+	return map[string]interface{}{"ok": true, "led": resp}, nil
+}
+
+// ledOn lights the LED with the stroke's color (white if none).
+func (s *controller) ledOn(ctx context.Context, c *colorJSON) {
+	if s.led == nil {
+		return
+	}
+	var color interface{} = []interface{}{255, 255, 255}
+	if c != nil {
+		color = map[string]interface{}{"r": c.R, "g": c.G, "b": c.B}
+	}
+	if _, err := s.led.DoCommand(ctx, map[string]interface{}{"command": "set_color", "color": color}); err != nil {
+		s.logger.Warnf("led on: %v", err)
+	}
+}
+
+// ledOff turns the LED off (used for travel moves and when idle).
+func (s *controller) ledOff(ctx context.Context) {
+	if s.led == nil {
+		return
+	}
+	if _, err := s.led.DoCommand(ctx, map[string]interface{}{"command": "off"}); err != nil {
+		s.logger.Warnf("led off: %v", err)
+	}
 }
 
 // ---- motion -----------------------------------------------------------------
@@ -312,6 +359,7 @@ func (s *controller) stop() (map[string]interface{}, error) {
 	if err := armComp.Stop(context.Background(), nil); err != nil {
 		s.logger.Warnf("stop: arm stop returned: %v", err)
 	}
+	s.ledOff(context.Background())
 	return map[string]interface{}{"stopped": true}, nil
 }
 
@@ -329,6 +377,7 @@ func (s *controller) home(ctx context.Context) (map[string]interface{}, error) {
 	defer cancel()
 	defer context.AfterFunc(cancelCtx, cancel)()
 
+	s.ledOff(ctx)
 	pose := pl.liftedPoseAt(0.5, 0.5, lift)
 	if err := s.moveTo(ctx, pose); err != nil {
 		return nil, fmt.Errorf("home move: %w", err)
@@ -407,6 +456,7 @@ func (s *controller) paintPath(ctx context.Context, cmd map[string]interface{}) 
 			return nil, fmt.Errorf("stroke %d/%d: %w", i+1, len(payload.Strokes), err)
 		}
 	}
+	s.ledOff(ctx) // ensure the light is off when the run completes
 	s.logger.Infof("painted %d stroke(s), %d point(s)", len(payload.Strokes), totalPoints)
 	return map[string]interface{}{
 		"strokes": len(payload.Strokes),
@@ -449,7 +499,8 @@ func (s *controller) execStroke(
 	if err := s.moveTo(ctx, pl.poseAt(first.U, first.V)); err != nil {
 		return 0, fmt.Errorf("lower to surface: %w", err)
 	}
-	// (future) set LED color from st.Color here.
+	// Light on (in the stroke's color) while the tool is on the surface.
+	s.ledOn(ctx, st.Color)
 
 	count := 1
 	for _, pt := range kept[1:] {
@@ -459,6 +510,8 @@ func (s *controller) execStroke(
 		count++
 	}
 
+	// Light off, then lift for the travel move to the next stroke.
+	s.ledOff(ctx)
 	last := kept[len(kept)-1]
 	if err := s.moveTo(ctx, pl.liftedPoseAt(last.U, last.V, lift)); err != nil {
 		return count, fmt.Errorf("lift off: %w", err)

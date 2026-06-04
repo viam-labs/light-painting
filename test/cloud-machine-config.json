@@ -4,7 +4,13 @@
       "type": "registry",
       "name": "light-painting",
       "module_id": "viam:light-painting",
-      "version": "0.0.6"
+      "version": "0.0.7"
+    },
+    {
+      "type": "registry",
+      "name": "neotrinkey",
+      "module_id": "viam:neotrinkey",
+      "version": "0.0.1"
     }
   ],
   "components": [
@@ -24,6 +30,14 @@
           "y": 0,
           "z": 0
         }
+      }
+    },
+    {
+      "name": "led",
+      "api": "rdk:component:generic",
+      "model": "viam:neotrinkey:trinkey-sim",
+      "attributes": {
+        "scene": "led-scene"
       }
     }
   ],
@@ -62,7 +76,21 @@
         },
         "lift_mm": 50,
         "min_segment_mm": 5,
-        "scene": "painting-scene"
+        "scene": "painting-scene",
+        "led": "led"
+      }
+    },
+    {
+      "name": "led-scene",
+      "api": "rdk:service:world_state_store",
+      "model": "viam:neotrinkey:trinkey-scene",
+      "attributes": {
+        "origin": {
+          "x": 0,
+          "y": -330,
+          "z": 300
+        },
+        "spacing_mm": 45
       }
     }
   ]
