@@ -89,7 +89,11 @@ export function traceImage(
   // Walk connected edge pixels into polylines.
   const visited = new Uint8Array(w * h);
   const strokes: Stroke[] = [];
-  const denom = Math.max(1, Math.max(w, h) - 1);
+  // Normalize each axis independently so (u,v) span [0,1] regardless of aspect
+  // ratio (dividing both by max(w,h) squishes the shorter axis). Image aspect is
+  // re-applied later by letterbox() when mapping onto the drawing plane.
+  const du = Math.max(1, w - 1);
+  const dv = Math.max(1, h - 1);
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -124,8 +128,8 @@ export function traceImage(
       const simplified = rdp(px, opts.simplifyPx);
       strokes.push({
         points: simplified.map(([sx, sy]) => ({
-          u: sx / denom,
-          v: sy / denom,
+          u: sx / du,
+          v: sy / dv,
         })),
       });
     }

@@ -90,6 +90,10 @@ func newScene(
 	s.SceneServiceBase.Hooks = s
 	s.SceneServiceBase.Logger = logger
 	s.SceneServiceBase.DefaultParentFrame = "world"
+	// Rotate UUIDs on every update so re-added geometry isn't dropped by the
+	// viewer's REMOVED-UUID cache (otherwise strokes only appear after a manual
+	// 3D refresh). New UUID per change instead of updating the existing one.
+	s.SceneServiceBase.DefaultUUIDStrategy = "versioned"
 	if err := s.Reconfigure(ctx, deps, conf); err != nil {
 		return nil, err
 	}
