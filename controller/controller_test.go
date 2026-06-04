@@ -68,6 +68,33 @@ func TestPlaneMirrorFlipsU(t *testing.T) {
 	}
 }
 
+func TestPlaneYawRotatesAboutWorldZ(t *testing.T) {
+	// Default approach +X; yaw 90° about world Z -> approach points +Y.
+	pl, err := newPlane(PlaneConfig{
+		Origin: vec3{X: 300, Y: 150, Z: 500}, WidthMM: 300, HeightMM: 300, YawDeg: 90,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ov := pl.orientation().OrientationVectorRadians()
+	got := r3.Vector{X: ov.OX, Y: ov.OY, Z: ov.OZ}
+	if !approxEq(got, r3.Vector{Y: 1}) {
+		t.Errorf("yawed approach = %v, want +Y", got)
+	}
+	// config() round-trips the un-yawed hint + the yaw value.
+	cfg := pl.config()
+	if cfg.YawDeg != 90 {
+		t.Errorf("config yaw = %v, want 90", cfg.YawDeg)
+	}
+	if a := cfg.Approach; a == nil || !approxEq(a.r3(), r3.Vector{X: 1}) {
+		t.Errorf("config approach = %v, want un-yawed +X", cfg.Approach)
+	}
+	// Origin is unchanged by yaw.
+	if !approxEq(pl.point(0, 0), r3.Vector{X: 300, Y: 150, Z: 500}) {
+		t.Errorf("yaw should not move the origin, got %v", pl.point(0, 0))
+	}
+}
+
 func TestPlaneOrientationPointsAlongApproach(t *testing.T) {
 	pl := defaultTestPlane(t)
 	ov := pl.orientation().OrientationVectorRadians()

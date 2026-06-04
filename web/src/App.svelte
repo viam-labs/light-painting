@@ -83,6 +83,7 @@
     approach: { x: 1, y: 0, z: 0 },
     up: { x: 0, y: 0, z: 1 },
     mirror: false,
+    yaw: 0,
   });
   let planeAspect = $derived(plane.width_mm / plane.height_mm);
 
@@ -97,6 +98,7 @@
         approach: p.approach ?? { x: 1, y: 0, z: 0 },
         up: p.up ?? { x: 0, y: 0, z: 1 },
         mirror: p.mirror ?? false,
+        yaw: p.yaw ?? 0,
       };
       addLog(`plane ${plane.width_mm}×${plane.height_mm}mm`);
     } catch (e) {
@@ -487,6 +489,7 @@
         <div class="grp"><span class="grplabel">size (mm)</span>
           <div class="row"><div class="field sm"><label>width</label><input type="number" bind:value={plane.width_mm} /></div><div class="field sm"><label>height</label><input type="number" bind:value={plane.height_mm} /></div></div>
         </div>
+        <label class="mini">yaw<b>{plane.yaw}°</b><input type="range" min="-180" max="180" step="1" bind:value={plane.yaw} /></label>
         <label class="toggle"><input type="checkbox" bind:checked={plane.mirror} /><span>mirror (paint from the back)</span></label>
         <div class="actions"><button onclick={applyPlane}>apply</button><button onclick={refreshPlane}>reload</button></div>
       </section>

@@ -42,6 +42,10 @@ type PlaneConfig struct {
 	// camera views the plane from the opposite side of the arm ("paint from the
 	// back") so the captured image reads the right way around.
 	Mirror bool `json:"mirror,omitempty"`
+	// YawDeg pre-rotates the plane's orientation about the world vertical (Z)
+	// axis, in degrees — e.g. to angle the surface away from straight-ahead. The
+	// origin is unchanged; only the facing/in-plane axes rotate.
+	YawDeg float64 `json:"yaw,omitempty"`
 }
 
 // plane is the resolved, precomputed drawing plane used at runtime. All vectors
@@ -50,11 +54,16 @@ type plane struct {
 	origin   r3.Vector // world position of (u,v)=(0,0)
 	width    float64   // mm along right
 	height   float64   // mm along down
-	approach r3.Vector // unit, tool pointing direction (into surface)
-	nOut     r3.Vector // unit, outward surface normal (= -approach)
-	right    r3.Vector // unit, +u direction in world
-	down     r3.Vector // unit, +v direction in world
+	approach r3.Vector // unit, tool pointing direction (into surface), yaw applied
+	nOut     r3.Vector // unit, outward surface normal (= -approach), yaw applied
+	right    r3.Vector // unit, +u direction in world, yaw applied
+	down     r3.Vector // unit, +v direction in world, yaw applied
 	mirror   bool      // when true, u is flipped (1-u) for back-of-plane viewing
+
+	// un-yawed hints + yaw, kept so config() round-trips cleanly.
+	yawDeg    float64
+	approach0 r3.Vector
+	up0       r3.Vector
 }
 
 func defaultIfZero(v *vec3, def r3.Vector) r3.Vector {
@@ -92,23 +101,35 @@ func newPlane(cfg PlaneConfig) (*plane, error) {
 	right = right.Normalize()
 	down := right.Cross(nOut).Normalize()
 
+	// Apply yaw about world Z to the orientation axes (origin stays put).
+	yawRad := cfg.YawDeg * math.Pi / 180
+
 	return &plane{
-		origin:   cfg.Origin.r3(),
-		width:    cfg.WidthMM,
-		height:   cfg.HeightMM,
-		approach: approach,
-		nOut:     nOut,
-		right:    right,
-		down:     down,
-		mirror:   cfg.Mirror,
+		origin:    cfg.Origin.r3(),
+		width:     cfg.WidthMM,
+		height:    cfg.HeightMM,
+		approach:  rotateZ(approach, yawRad),
+		nOut:      rotateZ(nOut, yawRad),
+		right:     rotateZ(right, yawRad),
+		down:      rotateZ(down, yawRad),
+		mirror:    cfg.Mirror,
+		yawDeg:    cfg.YawDeg,
+		approach0: approach,
+		up0:       up,
 	}, nil
+}
+
+// rotateZ rotates v about the world Z axis by rad radians.
+func rotateZ(v r3.Vector, rad float64) r3.Vector {
+	s, c := math.Sin(rad), math.Cos(rad)
+	return r3.Vector{X: v.X*c - v.Y*s, Y: v.X*s + v.Y*c, Z: v.Z}
 }
 
 // config reconstructs the PlaneConfig that produced this plane (used by the
 // get_plane DoCommand so the web UI can read the current geometry).
 func (p *plane) config() PlaneConfig {
-	approach := fromR3(p.approach)
-	up := fromR3(p.down.Mul(-1)) // image "up" is -down
+	approach := fromR3(p.approach0) // report the un-yawed hint + the yaw separately
+	up := fromR3(p.up0)
 	return PlaneConfig{
 		Origin:   fromR3(p.origin),
 		WidthMM:  p.width,
@@ -116,6 +137,7 @@ func (p *plane) config() PlaneConfig {
 		Approach: &approach,
 		Up:       &up,
 		Mirror:   p.mirror,
+		YawDeg:   p.yawDeg,
 	}
 }
 
