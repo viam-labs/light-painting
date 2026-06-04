@@ -55,4 +55,8 @@ export class Painter {
   stop() {
     return this.do({ command: "stop" });
   }
+
+  clearVisuals() {
+    return this.do({ command: "clear_visuals" });
+  }
 }

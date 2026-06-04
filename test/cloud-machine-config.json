@@ -4,7 +4,7 @@
       "type": "registry",
       "name": "light-painting",
       "module_id": "viam:light-painting",
-      "version": "0.0.2"
+      "version": "0.0.3"
     }
   ],
   "components": [
@@ -28,11 +28,6 @@
     }
   ],
   "services": [
-    {
-      "name": "builtin",
-      "api": "rdk:service:motion",
-      "model": "rdk:builtin:builtin"
-    },
     {
       "name": "painting-scene",
       "api": "rdk:service:world_state_store",

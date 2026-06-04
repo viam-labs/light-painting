@@ -104,6 +104,10 @@ type controller struct {
 	minSeg  float64
 	scene   scene.Sink // nil when no visualizer is configured
 
+	// strokeSeq assigns persistent, monotonically-increasing visual stroke ids
+	// so strokes from successive paint runs accumulate rather than overwrite.
+	strokeSeq int
+
 	// stateMu guards the adjustable plane and the cancel scope.
 	stateMu    sync.Mutex
 	plane      *plane
@@ -216,7 +220,7 @@ func (s *controller) Close(context.Context) error {
 func (s *controller) DoCommand(ctx context.Context, cmd map[string]interface{}) (map[string]interface{}, error) {
 	action, _ := cmd["command"].(string)
 	if action == "" {
-		for _, k := range []string{"get_plane", "set_plane", "paint_path", "home", "stop", "set_color"} {
+		for _, k := range []string{"get_plane", "set_plane", "paint_path", "home", "stop", "set_color", "clear_visuals"} {
 			if _, ok := cmd[k]; ok {
 				action = k
 				break
@@ -237,9 +241,11 @@ func (s *controller) DoCommand(ctx context.Context, cmd map[string]interface{}) 
 		return s.stop()
 	case "set_color":
 		return s.setColor(cmd)
+	case "clear_visuals":
+		return s.clearVisuals()
 	default:
 		return nil, fmt.Errorf(
-			"unknown command %q; supported: get_plane, set_plane, paint_path, home, stop, set_color", action)
+			"unknown command %q; supported: get_plane, set_plane, paint_path, home, stop, set_color, clear_visuals", action)
 	}
 }
 
@@ -276,6 +282,14 @@ func (s *controller) setPlane(cmd map[string]interface{}) (map[string]interface{
 }
 
 // ---- LED stub (future) ------------------------------------------------------
+
+// clearVisuals erases the plane and all painted strokes from the 3D scene.
+func (s *controller) clearVisuals() (map[string]interface{}, error) {
+	if s.scene != nil {
+		s.scene.Clear()
+	}
+	return map[string]interface{}{"cleared": true}, nil
+}
 
 func (s *controller) setColor(cmd map[string]interface{}) (map[string]interface{}, error) {
 	// Forward-compatible no-op until an LED component is wired in.
@@ -377,10 +391,9 @@ func (s *controller) paintPath(ctx context.Context, cmd map[string]interface{}) 
 	defer cancel()
 	defer context.AfterFunc(cancelCtx, cancel)()
 
-	// Start a fresh visualization of this paint run: clear prior strokes and
-	// draw the current drawing-plane outline.
+	// Draw the current drawing-plane outline. Prior strokes are left in place so
+	// successive paint runs accumulate (clear them with the clear_visuals command).
 	if s.scene != nil {
-		s.scene.ResetPainting()
 		s.scene.ShowPlane([]r3.Vector{
 			pl.point(0, 0), pl.point(1, 0), pl.point(1, 1), pl.point(0, 1),
 		})
@@ -388,7 +401,7 @@ func (s *controller) paintPath(ctx context.Context, cmd map[string]interface{}) 
 
 	totalPoints := 0
 	for i, st := range payload.Strokes {
-		n, err := s.execStroke(ctx, pl, lift, minSeg, i, st)
+		n, err := s.execStroke(ctx, pl, lift, minSeg, st)
 		totalPoints += n
 		if err != nil {
 			return nil, fmt.Errorf("stroke %d/%d: %w", i+1, len(payload.Strokes), err)
@@ -404,22 +417,29 @@ func (s *controller) paintPath(ctx context.Context, cmd map[string]interface{}) 
 // execStroke draws a single stroke: travel (lifted) to the start, lower, trace
 // the down-sampled points, then lift off.
 func (s *controller) execStroke(
-	ctx context.Context, pl *plane, lift, minSeg float64, idx int, st strokeJSON,
+	ctx context.Context, pl *plane, lift, minSeg float64, st strokeJSON,
 ) (int, error) {
 	kept := downsample(pl, st.Points, minSeg)
 	if len(kept) == 0 {
 		return 0, nil
 	}
 
-	// Draw the stroke into the 3D scene up-front so the painted path is visible
-	// as the arm traces it.
+	// Draw the stroke into the 3D scene up-front in the active color so the
+	// trajectory being painted is highlighted while the arm traces it. The
+	// finished stroke is recolored once the arm completes it (deferred below).
+	strokeID := -1
 	if s.scene != nil && len(kept) >= 2 {
 		worldPts := make([]r3.Vector, len(kept))
 		for i, pt := range kept {
 			worldPts[i] = pl.point(pt.U, pt.V)
 		}
-		r, g, b := strokeColor(st.Color)
-		s.scene.ShowStroke(idx, worldPts, r, g, b)
+		strokeID = s.nextStrokeID()
+		s.scene.StartStroke(strokeID, worldPts)
+		defer func() {
+			if strokeID >= 0 {
+				s.scene.FinishStroke(strokeID)
+			}
+		}()
 	}
 
 	first := kept[0]
@@ -467,22 +487,13 @@ func downsample(pl *plane, pts []pointJSON, minSeg float64) []pointJSON {
 
 // ---- helpers ----------------------------------------------------------------
 
-// strokeColor returns an RGB triple (0-255) for a stroke, defaulting to a
-// light-painting purple when no color is provided.
-func strokeColor(c *colorJSON) (int, int, int) {
-	if c == nil {
-		return 168, 85, 247
-	}
-	clamp := func(v float64) int {
-		if v < 0 {
-			return 0
-		}
-		if v > 255 {
-			return 255
-		}
-		return int(v)
-	}
-	return clamp(c.R), clamp(c.G), clamp(c.B)
+// nextStrokeID returns a fresh, never-reused visual stroke id.
+func (s *controller) nextStrokeID() int {
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+	id := s.strokeSeq
+	s.strokeSeq++
+	return id
 }
 
 func jsonRoundTrip(in, out interface{}) error {

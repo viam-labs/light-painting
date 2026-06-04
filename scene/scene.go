@@ -34,14 +34,25 @@ func init() {
 }
 
 // Sink is the in-process interface the controller uses to push painting visuals.
+// Strokes persist until Clear is called, so successive paint runs accumulate.
 type Sink interface {
-	// ResetPainting clears all strokes and the plane outline.
-	ResetPainting()
+	// Clear erases the plane outline and all painted strokes.
+	Clear()
 	// ShowPlane draws the drawing-plane outline through the given corner points.
 	ShowPlane(corners []r3.Vector)
-	// ShowStroke adds (or replaces) stroke idx as a colored polyline through pts.
-	ShowStroke(idx int, pts []r3.Vector, r, g, b int)
+	// StartStroke draws stroke id as a polyline through pts in the active color.
+	StartStroke(id int, pts []r3.Vector)
+	// FinishStroke recolors stroke id from the active to the finished color.
+	FinishStroke(id int)
 }
+
+// Stroke colors: the trajectory currently being painted is highlighted; once
+// complete it switches to the finished color so prior strokes are distinct.
+var (
+	activeColor   = visuals.Color{R: 255, G: 225, B: 70}  // bright yellow — painting now
+	finishedColor = visuals.Color{R: 150, G: 80, B: 230}  // purple — completed
+	planeColor    = visuals.Color{R: 110, G: 110, B: 140} // gray — drawing plane
+)
 
 // Lookup returns the in-process painting-scene registered under name, if it
 // lives in this module binary.
@@ -51,8 +62,8 @@ func Lookup(name string) (Sink, bool) {
 }
 
 type stroke struct {
-	pts     []r3.Vector
-	r, g, b int
+	pts    []r3.Vector
+	active bool
 }
 
 type paintingScene struct {
@@ -107,7 +118,7 @@ func (s *paintingScene) Close(ctx context.Context) error {
 
 // ---- Sink implementation ----------------------------------------------------
 
-func (s *paintingScene) ResetPainting() {
+func (s *paintingScene) Clear() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.plane = nil
@@ -122,11 +133,21 @@ func (s *paintingScene) ShowPlane(corners []r3.Vector) {
 	s.rebuildLocked()
 }
 
-func (s *paintingScene) ShowStroke(idx int, pts []r3.Vector, r, g, b int) {
+func (s *paintingScene) StartStroke(id int, pts []r3.Vector) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.strokes[idx] = stroke{pts: append([]r3.Vector(nil), pts...), r: r, g: g, b: b}
+	s.strokes[id] = stroke{pts: append([]r3.Vector(nil), pts...), active: true}
 	s.rebuildLocked()
+}
+
+func (s *paintingScene) FinishStroke(id int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st, ok := s.strokes[id]; ok {
+		st.active = false
+		s.strokes[id] = st
+		s.rebuildLocked()
+	}
 }
 
 // rebuildLocked recomputes the full visual set and pushes it to the viewer.
@@ -141,9 +162,9 @@ func (s *paintingScene) rebuildLocked() {
 			pts = append(pts, visuals.PoseAt(c.X, c.Y, c.Z, 0, 0, 1, 0))
 		}
 		pts = append(pts, pts[0]) // close the rectangle
-		gray := visuals.Color{R: 120, G: 120, B: 150}
+		pc := planeColor
 		vs = append(vs, &visuals.Line{
-			LabelPrefix: "plane", Points: pts, WidthMM: 3, ParentFrame: "world", Color: &gray,
+			LabelPrefix: "plane", Points: pts, WidthMM: 3, ParentFrame: "world", Color: &pc,
 		})
 	}
 
@@ -161,7 +182,10 @@ func (s *paintingScene) rebuildLocked() {
 		for _, p := range st.pts {
 			pts = append(pts, visuals.PoseAt(p.X, p.Y, p.Z, 0, 0, 1, 0))
 		}
-		col := visuals.Color{R: st.r, G: st.g, B: st.b}
+		col := finishedColor
+		if st.active {
+			col = activeColor
+		}
 		vs = append(vs, &visuals.Line{
 			LabelPrefix: fmt.Sprintf("stroke_%03d", i), Points: pts, WidthMM: 5,
 			ParentFrame: "world", Color: &col,

@@ -218,6 +218,16 @@
       addLog(`stop failed: ${e}`);
     }
   }
+
+  async function clearVisuals() {
+    if (!painter) return;
+    try {
+      await painter.clearVisuals();
+      addLog("cleared visuals");
+    } catch (e) {
+      addLog(`clear failed: ${e}`);
+    }
+  }
 </script>
 
 <main>
@@ -291,7 +301,9 @@
           </button>
           <button onclick={home} disabled={painting}>Home</button>
           <button class="danger" onclick={stop}>Stop</button>
+          <button onclick={clearVisuals}>Clear visuals</button>
         </div>
+        <p class="hint">Painted trajectories persist in the 3D scene; Clear visuals erases them.</p>
       </section>
     </div>
 

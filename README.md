@@ -68,6 +68,15 @@ library's in-process registry (no gRPC round-trip). Pair it with the
 **`rdk:builtin:simulated`** arm (`simulate-time: true`) so the arm visibly animates along
 each stroke instead of teleporting like `rdk:builtin:fake`.
 
+The trajectory **currently being painted is highlighted** (bright yellow); once complete it
+switches to the **finished color** (purple). Strokes **persist** across successive paint
+runs so a whole picture builds up — call `clear_visuals` (Clear visuals button in the web
+app) to erase them.
+
+> The `builtin` motion service is a default service (auto-created on every machine), so it
+> does not need a `services` entry — the controller's default `motion_service: "builtin"`
+> resolves to it.
+
 ### DoCommand API
 
 | Command | Payload | Result |
@@ -77,6 +86,7 @@ each stroke instead of teleporting like `rdk:builtin:fake`.
 | `paint_path` | `{ "strokes": [ { "points": [{"u":..,"v":..}], "color"?: {r,g,b} } ] }` | `{strokes, points}` |
 | `home` | – | moves to the lifted plane center |
 | `stop` | – | cancels the in-flight paint and stops the arm |
+| `clear_visuals` | – | erases the plane + all painted strokes from the 3D scene |
 | `set_color` | `{r,g,b}` | **stub** — accepted, no-op until an LED is wired in |
 
 ## Build
