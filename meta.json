@@ -2,7 +2,7 @@
   "$schema": "https://dl.viam.dev/module.schema.json",
   "module_id": "viam:light-painting",
   "visibility": "private",
-  "description": "Light-painting controller: traces images into arm motion via the motion service",
+  "description": "Light painting with a robot arm: trace a photo in the browser and the arm draws it with a light for long-exposure capture — motion-service path execution, an adjustable drawing plane, and a live 3D scene visualizer.",
   "models": [
     {
       "api": "rdk:service:generic",

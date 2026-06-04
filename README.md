@@ -55,6 +55,8 @@ service**.
 - `approach` is the direction the tool points while drawing (into the surface).
 - `up` is the world direction that maps to image "up".
 - `min_segment_mm` down-samples dense traced paths to keep motion tractable.
+- `drawing_plane.mirror` flips the image left-right — enable it when the long-exposure
+  camera views the plane from behind the arm ("paint from the back").
 - `scene` (optional) names a `painting-scene` visualizer to draw into (see below).
 
 ## Visualization
