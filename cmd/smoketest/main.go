@@ -80,8 +80,8 @@ func run(addr string) error {
 
 	// Adjust the plane (shrink + shift), then read it back.
 	if err := do("set_plane", map[string]interface{}{
-		"command": "set_plane",
-		"origin":  map[string]interface{}{"x": 320, "y": 120, "z": 480},
+		"command":   "set_plane",
+		"origin":    map[string]interface{}{"x": 320, "y": 120, "z": 480},
 		"width_mm":  240,
 		"height_mm": 240,
 	}); err != nil {

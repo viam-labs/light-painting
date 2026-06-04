@@ -18,13 +18,17 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/golang/geo/r3"
 	"go.viam.com/rdk/components/arm"
 	"go.viam.com/rdk/logging"
 	"go.viam.com/rdk/referenceframe"
 	"go.viam.com/rdk/resource"
 	generic "go.viam.com/rdk/services/generic"
 	"go.viam.com/rdk/services/motion"
+	"go.viam.com/rdk/services/worldstatestore"
 	"go.viam.com/rdk/spatialmath"
+
+	"light-painting/scene"
 )
 
 // Model is the resource model for the light-painting controller.
@@ -61,6 +65,9 @@ type Config struct {
 	MinSegmentMM float64 `json:"min_segment_mm,omitempty"`
 	// LED is the name of an end-effector LED component (future use; unused today).
 	LED string `json:"led,omitempty"`
+	// Scene is the name of a painting-scene world_state_store visualizer to draw
+	// the plane and painted strokes into the Viam 3D viewer. Optional.
+	Scene string `json:"scene,omitempty"`
 }
 
 // Validate checks required fields and returns the resource dependencies.
@@ -77,6 +84,11 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 		ms = defaultMotionService
 	}
 	deps := []string{motion.Named(ms).String(), arm.Named(cfg.Arm).String()}
+	if cfg.Scene != "" {
+		// Depend on the visualizer so it is constructed (and registered
+		// in-process) before this controller.
+		deps = append(deps, worldstatestore.Named(cfg.Scene).String())
+	}
 	return deps, nil, nil
 }
 
@@ -90,6 +102,7 @@ type controller struct {
 	armName string
 	lift    float64
 	minSeg  float64
+	scene   scene.Sink // nil when no visualizer is configured
 
 	// stateMu guards the adjustable plane and the cancel scope.
 	stateMu    sync.Mutex
@@ -156,6 +169,15 @@ func newController(
 		plane:      pl,
 		cancelCtx:  cancelCtx,
 		cancelFunc: cancelFunc,
+	}
+
+	if conf.Scene != "" {
+		if sink, ok := scene.Lookup(conf.Scene); ok {
+			s.scene = sink
+			logger.Infof("visualizing into painting-scene %q", conf.Scene)
+		} else {
+			logger.Warnf("scene %q not found in-process; visualization disabled", conf.Scene)
+		}
 	}
 	logger.Infof("light-painting-controller ready: arm=%q motion=%q plane(w=%.0f h=%.0f aspect=%.2f) lift=%.0fmm",
 		conf.Arm, msName, pl.width, pl.height, pl.aspect(), lift)
@@ -355,9 +377,18 @@ func (s *controller) paintPath(ctx context.Context, cmd map[string]interface{}) 
 	defer cancel()
 	defer context.AfterFunc(cancelCtx, cancel)()
 
+	// Start a fresh visualization of this paint run: clear prior strokes and
+	// draw the current drawing-plane outline.
+	if s.scene != nil {
+		s.scene.ResetPainting()
+		s.scene.ShowPlane([]r3.Vector{
+			pl.point(0, 0), pl.point(1, 0), pl.point(1, 1), pl.point(0, 1),
+		})
+	}
+
 	totalPoints := 0
 	for i, st := range payload.Strokes {
-		n, err := s.execStroke(ctx, pl, lift, minSeg, st)
+		n, err := s.execStroke(ctx, pl, lift, minSeg, i, st)
 		totalPoints += n
 		if err != nil {
 			return nil, fmt.Errorf("stroke %d/%d: %w", i+1, len(payload.Strokes), err)
@@ -373,11 +404,22 @@ func (s *controller) paintPath(ctx context.Context, cmd map[string]interface{}) 
 // execStroke draws a single stroke: travel (lifted) to the start, lower, trace
 // the down-sampled points, then lift off.
 func (s *controller) execStroke(
-	ctx context.Context, pl *plane, lift, minSeg float64, st strokeJSON,
+	ctx context.Context, pl *plane, lift, minSeg float64, idx int, st strokeJSON,
 ) (int, error) {
 	kept := downsample(pl, st.Points, minSeg)
 	if len(kept) == 0 {
 		return 0, nil
+	}
+
+	// Draw the stroke into the 3D scene up-front so the painted path is visible
+	// as the arm traces it.
+	if s.scene != nil && len(kept) >= 2 {
+		worldPts := make([]r3.Vector, len(kept))
+		for i, pt := range kept {
+			worldPts[i] = pl.point(pt.U, pt.V)
+		}
+		r, g, b := strokeColor(st.Color)
+		s.scene.ShowStroke(idx, worldPts, r, g, b)
 	}
 
 	first := kept[0]
@@ -424,6 +466,24 @@ func downsample(pl *plane, pts []pointJSON, minSeg float64) []pointJSON {
 }
 
 // ---- helpers ----------------------------------------------------------------
+
+// strokeColor returns an RGB triple (0-255) for a stroke, defaulting to a
+// light-painting purple when no color is provided.
+func strokeColor(c *colorJSON) (int, int, int) {
+	if c == nil {
+		return 168, 85, 247
+	}
+	clamp := func(v float64) int {
+		if v < 0 {
+			return 0
+		}
+		if v > 255 {
+			return 255
+		}
+		return int(v)
+	}
+	return clamp(c.R), clamp(c.G), clamp(c.B)
+}
 
 func jsonRoundTrip(in, out interface{}) error {
 	b, err := json.Marshal(in)

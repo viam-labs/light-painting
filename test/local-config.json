@@ -4,8 +4,8 @@
     {
       "name": "my_arm",
       "api": "rdk:component:arm",
-      "model": "rdk:builtin:fake",
-      "attributes": { "arm-model": "xarm6" },
+      "model": "rdk:builtin:simulated",
+      "attributes": { "arm-model": "xarm6", "speed": 1.5, "simulate-time": true },
       "frame": {
         "parent": "world",
         "translation": { "x": 0, "y": 0, "z": 0 }
@@ -19,12 +19,18 @@
       "model": "rdk:builtin:builtin"
     },
     {
+      "name": "painting-scene",
+      "api": "rdk:service:world_state_store",
+      "model": "viam:light-painting:painting-scene"
+    },
+    {
       "name": "painter",
       "api": "rdk:service:generic",
       "model": "viam:light-painting:light-painting-controller",
       "attributes": {
         "arm": "my_arm",
         "motion_service": "builtin",
+        "scene": "painting-scene",
         "drawing_plane": {
           "origin": { "x": 300, "y": 150, "z": 500 },
           "width_mm": 300,

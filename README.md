@@ -17,10 +17,11 @@ Web app (Svelte)                light-painting-controller (Go)         Viam moti
 |------|------|
 | `controller/` | `viam:light-painting:light-painting-controller`, a `rdk:service:generic` model |
 | `controller/plane.go` | the adjustable drawing plane and the normalized-(u,v) → task-space pose mapping |
+| `scene/` | `viam:light-painting:painting-scene`, a `rdk:service:world_state_store` visualizer (drawing plane + painted strokes in the Viam 3D viewer) |
 | `web/` | Svelte + Vite web app (embedded Viam Application): photo pick, in-browser tracing, plane editor, paint controls |
-| `cmd/module/` | module entrypoint |
+| `cmd/module/` | module entrypoint (registers both models) |
 | `cmd/smoketest/` | headless client that drives the controller against a local server |
-| `test/local-config.json` | local-only robot config: fake `xarm6` arm + builtin motion + this module |
+| `test/local-config.json` | local-only robot config: simulated `xarm6` arm + builtin motion + visualizer + this module |
 
 ## How it works
 
@@ -54,6 +55,18 @@ service**.
 - `approach` is the direction the tool points while drawing (into the surface).
 - `up` is the world direction that maps to image "up".
 - `min_segment_mm` down-samples dense traced paths to keep motion tractable.
+- `scene` (optional) names a `painting-scene` visualizer to draw into (see below).
+
+## Visualization
+
+When the controller is given a `scene` attribute naming a **`painting-scene`**
+(`rdk:service:world_state_store`) service, it draws the drawing-plane outline and each
+painted stroke into the Viam 3D scene viewer as it works. The visualizer is built on
+[`viam-labs/viam-viz-helpers-go`](https://github.com/viam-labs/viam-viz-helpers-go);
+because both models ship in the same binary, the controller pushes geometry to it via the
+library's in-process registry (no gRPC round-trip). Pair it with the
+**`rdk:builtin:simulated`** arm (`simulate-time: true`) so the arm visibly animates along
+each stroke instead of teleporting like `rdk:builtin:fake`.
 
 ### DoCommand API
 
@@ -77,7 +90,8 @@ cd web && npm install && npm run build   # web app -> web/dist
 
 ## Local testing with a simulated arm
 
-`test/local-config.json` runs everything locally with a **fake xArm6** — no cloud needed.
+`test/local-config.json` runs everything locally with a **simulated xArm6** + the
+visualizer — no cloud needed.
 
 ```bash
 make                                            # build bin/light-painting
@@ -85,10 +99,11 @@ viam-server -config test/local-config.json &    # starts on localhost:8090
 go run ./cmd/smoketest                           # drives get_plane/set_plane/home/paint_path/stop
 ```
 
-The smoke test prints each command's result and the server log shows the motion service
-planning and executing each pose. To drive it from the browser instead, serve the web app
-(`cd web && npm run dev`) or deploy it as the module's Viam Application and connect to the
-machine.
+The smoke test prints each command's result; the server log shows the motion service
+planning and executing each pose while the simulated arm animates toward it, and the
+`painting-scene` service publishes the plane + stroke geometry (visible in the machine's
+3D view). To drive it from the browser instead, serve the web app (`cd web && npm run dev`)
+or open the deployed Viam Application.
 
 ## Registry & Viam Application
 

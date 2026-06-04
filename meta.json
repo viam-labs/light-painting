@@ -8,6 +8,11 @@
       "api": "rdk:service:generic",
       "model": "viam:light-painting:light-painting-controller",
       "short_description": "Receives traced image strokes and draws them with an arm on an adjustable plane"
+    },
+    {
+      "api": "rdk:service:world_state_store",
+      "model": "viam:light-painting:painting-scene",
+      "short_description": "Renders the drawing plane and painted strokes into the Viam 3D scene viewer"
     }
   ],
   "entrypoint": "bin/light-painting",
