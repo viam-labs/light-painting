@@ -155,9 +155,20 @@
     if (!img) return;
     const res = traceImage(img, { maxDim, threshold, minStroke, simplifyPx });
     strokes = res.strokes;
-    addLog(`traced ${strokes.length} stroke(s)`);
     drawPreview();
   }
+
+  // Live-trace: re-trace (debounced) whenever the image or any trace control
+  // changes, so there's no need to click a button.
+  let traceTimer: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    // Touch the reactive deps so the effect re-runs on any change.
+    void [img, threshold, maxDim, simplifyPx, minStroke];
+    if (!img) return;
+    clearTimeout(traceTimer);
+    traceTimer = setTimeout(trace, 120);
+    return () => clearTimeout(traceTimer);
+  });
 
   // Draw the image with the traced strokes overlaid (in image space).
   function drawPreview() {
@@ -295,7 +306,7 @@
         <div class="slider"><label>resolution<b>{maxDim}px</b></label><input type="range" min="60" max="320" step="10" bind:value={maxDim} /></div>
         <div class="slider"><label>simplify<b>{simplifyPx}px</b></label><input type="range" min="0" max="5" step="0.5" bind:value={simplifyPx} /></div>
         <div class="slider"><label>min stroke<b>{minStroke}</b></label><input type="range" min="2" max="30" bind:value={minStroke} /></div>
-        <button onclick={trace} disabled={!img}>trace image</button>
+        <p class="hint">{img ? "live · traces as you adjust" : "load a photo to trace"}</p>
       </section>
 
       <section class="panel">
