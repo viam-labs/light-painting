@@ -138,6 +138,122 @@ export function traceImage(
   return { strokes, width: w, height: h };
 }
 
+export interface SvgTraceOptions {
+  simplifyPx: number; // RDP tolerance (scaled into normalized space)
+  minStroke: number; // drop strokes with fewer points
+  sampleStep?: number; // sampling step along each path, in viewBox units
+  includeRect?: boolean; // include <rect> elements (often backgrounds)
+}
+
+// traceSvg samples an SVG's geometry elements directly into stroke polylines —
+// near-perfect trajectories, no edge detection. Each path/shape is walked with
+// the browser's getPointAtLength()/getCTM() (which honors curves, arcs and
+// ancestor transforms), mapped into the viewBox, normalized to [0,1], then
+// simplified. Requires a DOM (runs in the browser).
+export function traceSvg(svgText: string, opts: SvgTraceOptions): TraceResult {
+  const holder = document.createElement("div");
+  holder.setAttribute(
+    "style",
+    "position:absolute;left:-99999px;top:0;width:0;height:0;overflow:hidden",
+  );
+  holder.innerHTML = svgText;
+  const svg = holder.querySelector("svg") as SVGSVGElement | null;
+  if (!svg) throw new Error("no <svg> root element");
+  document.body.appendChild(holder);
+
+  try {
+    // Determine the user-space bounds (viewBox, else width/height, else bbox).
+    let vbX = 0, vbY = 0, vbW = 0, vbH = 0;
+    const vb = svg.getAttribute("viewBox");
+    if (vb) {
+      const p = vb.split(/[\s,]+/).map(Number);
+      [vbX, vbY, vbW, vbH] = [p[0], p[1], p[2], p[3]];
+    } else {
+      try {
+        const bb = svg.getBBox();
+        vbX = bb.x; vbY = bb.y; vbW = bb.width; vbH = bb.height;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (!vbW || !vbH) throw new Error("could not determine SVG bounds");
+
+    const selector = `path,line,polyline,polygon,circle,ellipse${opts.includeRect ? ",rect" : ""}`;
+    const els = svg.querySelectorAll(selector);
+    // getPointAtLength is O(path segments) per call, so keep the sample count
+    // bounded — RDP recovers the shape from a few hundred samples.
+    const diag = Math.max(vbW, vbH);
+    const step = opts.sampleStep ?? Math.max(1, diag / 400);
+    const eps = opts.simplifyPx * 0.004; // RDP tolerance in normalized units
+    const strokes: Stroke[] = [];
+
+    // First pass: sample every element into raw sub-strokes (in viewport coords
+    // via getCTM, which includes Inkscape's group transforms), splitting at
+    // subpath gaps, and track the overall bounding box.
+    const rawStrokes: [number, number][][] = [];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+    els.forEach((node) => {
+      const geo = node as SVGGeometryElement;
+      let len = 0;
+      try {
+        len = geo.getTotalLength();
+      } catch {
+        return; // not a geometry element we can sample
+      }
+      if (!isFinite(len) || len <= 0) return;
+
+      const ctm = geo.getCTM();
+      const n = Math.max(16, Math.min(900, Math.ceil(len / step)));
+      // A path can contain multiple disconnected subpaths (e.g. a letter's outer
+      // and inner contour). getPointAtLength walks them as one continuous length,
+      // so a large jump between consecutive samples marks a subpath boundary —
+      // split there instead of drawing a straight line across the gap.
+      const jumpThresh = (len / n) * 4;
+
+      let sub: [number, number][] = [];
+      let px = 0, py = 0, havePrev = false;
+      const flush = () => {
+        if (sub.length >= 2) rawStrokes.push(sub);
+        sub = [];
+      };
+      for (let i = 0; i <= n; i++) {
+        let pt = geo.getPointAtLength((len * i) / n);
+        if (ctm) pt = pt.matrixTransform(ctm);
+        if (havePrev && Math.hypot(pt.x - px, pt.y - py) > jumpThresh) flush();
+        sub.push([pt.x, pt.y]);
+        if (pt.x < minX) minX = pt.x;
+        if (pt.x > maxX) maxX = pt.x;
+        if (pt.y < minY) minY = pt.y;
+        if (pt.y > maxY) maxY = pt.y;
+        px = pt.x;
+        py = pt.y;
+        havePrev = true;
+      }
+      flush();
+    });
+
+    // Normalize by the content bounding box so the drawing fills [0,1] with the
+    // right aspect, regardless of viewBox/transform quirks.
+    const w = maxX - minX;
+    const h = maxY - minY;
+    if (!(w > 0) || !(h > 0)) throw new Error("traced SVG has no extent");
+    for (const sub of rawStrokes) {
+      const norm = sub.map(
+        ([x, y]) => [(x - minX) / w, (y - minY) / h] as [number, number],
+      );
+      const simp = rdp(norm, eps);
+      if (simp.length >= opts.minStroke) {
+        strokes.push({ points: simp.map(([u, v]) => ({ u, v })) });
+      }
+    }
+
+    return { strokes, width: w, height: h };
+  } finally {
+    document.body.removeChild(holder);
+  }
+}
+
 // Ramer-Douglas-Peucker polyline simplification.
 function rdp(points: [number, number][], eps: number): [number, number][] {
   if (points.length < 3 || eps <= 0) return points;

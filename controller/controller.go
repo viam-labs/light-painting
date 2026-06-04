@@ -65,9 +65,15 @@ type Config struct {
 	// than this (in mm on the plane) are dropped. Defaults to 5mm.
 	MinSegmentMM float64 `json:"min_segment_mm,omitempty"`
 	// LED is the name of an end-effector LED (generic component, e.g. a
-	// viam:neotrinkey:trinkey). When set, the LED is lit with each stroke's
-	// color while drawing and turned off during travel moves.
+	// viam:neotrinkey:trinkey). When set, the single PaintPixel is lit with each
+	// stroke/point color while drawing and turned off during travel moves.
 	LED string `json:"led,omitempty"`
+	// PaintPixel is the single NeoPixel index (0-3) used as the painting light.
+	PaintPixel int `json:"paint_pixel,omitempty"`
+	// PaintFrame is the frame the motion service moves to each pose. Defaults to
+	// the arm. Set it to the LED component's frame so that one LED is the point
+	// that traces the path.
+	PaintFrame string `json:"paint_frame,omitempty"`
 	// Scene is the name of a painting-scene world_state_store visualizer to draw
 	// the plane and painted strokes into the Viam 3D viewer. Optional.
 	Scene string `json:"scene,omitempty"`
@@ -101,15 +107,18 @@ func (cfg *Config) Validate(path string) ([]string, []string, error) {
 type controller struct {
 	resource.AlwaysRebuild
 
-	name    resource.Name
-	logger  logging.Logger
-	motion  motion.Service
-	arm     arm.Arm
-	armName string
-	lift    float64
-	minSeg  float64
-	scene   scene.Sink        // nil when no visualizer is configured
-	led     resource.Resource // nil when no LED is configured
+	name       resource.Name
+	logger     logging.Logger
+	motion     motion.Service
+	arm        arm.Arm
+	armName    string
+	paintFrame string // frame moved by the motion service (the painting LED)
+	paintPixel int    // which NeoPixel (0-3) is the painting light
+	lift       float64
+	minSeg     float64
+	scene      scene.Sink        // nil when no visualizer is configured
+	led        resource.Resource // nil when no LED is configured
+	ledColor   *colorJSON        // last color sent to the LED (nil = off)
 
 	// strokeSeq assigns persistent, monotonically-increasing visual stroke ids
 	// so strokes from successive paint runs accumulate rather than overwrite.
@@ -168,6 +177,15 @@ func newController(
 		minSeg = defaultMinSegmentMM
 	}
 
+	paintFrame := conf.PaintFrame
+	if paintFrame == "" {
+		paintFrame = conf.Arm
+	}
+	paintPixel := conf.PaintPixel
+	if paintPixel < 0 {
+		paintPixel = 0
+	}
+
 	cancelCtx, cancelFunc := context.WithCancel(context.Background())
 	s := &controller{
 		name:       rawConf.ResourceName(),
@@ -175,6 +193,8 @@ func newController(
 		motion:     motionSvc,
 		arm:        armComp,
 		armName:    conf.Arm,
+		paintFrame: paintFrame,
+		paintPixel: paintPixel,
 		lift:       lift,
 		minSeg:     minSeg,
 		plane:      pl,
@@ -322,18 +342,35 @@ func (s *controller) setColor(ctx context.Context, cmd map[string]interface{}) (
 	return map[string]interface{}{"ok": true, "led": resp}, nil
 }
 
-// ledOn lights the LED with the stroke's color (white if none).
-func (s *controller) ledOn(ctx context.Context, c *colorJSON) {
+// ledSet lights only the painting pixel with color c (white if nil), turning
+// the others off. It caches the last color so repeated identical sets (a solid
+// stroke) don't spam the device, while still supporting per-point color changes
+// (rainbow). Caller drives this per stroke or per point.
+func (s *controller) ledSet(ctx context.Context, c *colorJSON) {
 	if s.led == nil {
 		return
 	}
-	var color interface{} = []interface{}{255, 255, 255}
+	col := colorJSON{R: 255, G: 255, B: 255}
 	if c != nil {
-		color = map[string]interface{}{"r": c.R, "g": c.G, "b": c.B}
+		col = *c
 	}
-	if _, err := s.led.DoCommand(ctx, map[string]interface{}{"command": "set_color", "color": color}); err != nil {
-		s.logger.Warnf("led on: %v", err)
+	if s.ledColor != nil && *s.ledColor == col {
+		return // unchanged
 	}
+	pixels := make([]interface{}, 4)
+	for i := range pixels {
+		if i == s.paintPixel {
+			pixels[i] = []interface{}{col.R, col.G, col.B}
+		} else {
+			pixels[i] = []interface{}{0, 0, 0}
+		}
+	}
+	if _, err := s.led.DoCommand(ctx, map[string]interface{}{"command": "set_pixels", "pixels": pixels}); err != nil {
+		s.logger.Warnf("led set: %v", err)
+		return
+	}
+	cc := col
+	s.ledColor = &cc
 }
 
 // ledOff turns the LED off (used for travel moves and when idle).
@@ -341,6 +378,7 @@ func (s *controller) ledOff(ctx context.Context) {
 	if s.led == nil {
 		return
 	}
+	s.ledColor = nil
 	if _, err := s.led.DoCommand(ctx, map[string]interface{}{"command": "off"}); err != nil {
 		s.logger.Warnf("led off: %v", err)
 	}
@@ -388,7 +426,7 @@ func (s *controller) home(ctx context.Context) (map[string]interface{}, error) {
 func (s *controller) moveTo(ctx context.Context, pose spatialmath.Pose) error {
 	dest := referenceframe.NewPoseInFrame(referenceframe.World, pose)
 	_, err := s.motion.Move(ctx, motion.MoveReq{
-		ComponentName: s.armName,
+		ComponentName: s.paintFrame,
 		Destination:   dest,
 	})
 	return err
@@ -399,6 +437,9 @@ func (s *controller) moveTo(ctx context.Context, pose spatialmath.Pose) error {
 type pointJSON struct {
 	U float64 `json:"u"`
 	V float64 `json:"v"`
+	// Color optionally overrides the stroke color at this point (for rainbow /
+	// gradient layers).
+	Color *colorJSON `json:"color,omitempty"`
 }
 
 type colorJSON struct {
@@ -492,6 +533,13 @@ func (s *controller) execStroke(
 		}()
 	}
 
+	colorFor := func(pt pointJSON) *colorJSON {
+		if pt.Color != nil {
+			return pt.Color
+		}
+		return st.Color
+	}
+
 	first := kept[0]
 	if err := s.moveTo(ctx, pl.liftedPoseAt(first.U, first.V, lift)); err != nil {
 		return 0, fmt.Errorf("travel to start: %w", err)
@@ -499,11 +547,12 @@ func (s *controller) execStroke(
 	if err := s.moveTo(ctx, pl.poseAt(first.U, first.V)); err != nil {
 		return 0, fmt.Errorf("lower to surface: %w", err)
 	}
-	// Light on (in the stroke's color) while the tool is on the surface.
-	s.ledOn(ctx, st.Color)
+	// Light on (the painting pixel) once the tool is on the surface.
+	s.ledSet(ctx, colorFor(first))
 
 	count := 1
 	for _, pt := range kept[1:] {
+		s.ledSet(ctx, colorFor(pt)) // update color along the stroke (rainbow)
 		if err := s.moveTo(ctx, pl.poseAt(pt.U, pt.V)); err != nil {
 			return count, fmt.Errorf("draw point: %w", err)
 		}
