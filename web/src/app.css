@@ -1,0 +1,63 @@
+:root {
+  font-family: system-ui, -apple-system, sans-serif;
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: #0a0a0f;
+  color: #e6e6f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid #3a3a55;
+  background: #1a1a28;
+  color: #e6e6f0;
+  padding: 8px 14px;
+  border-radius: 6px;
+}
+
+button:hover:not(:disabled) {
+  background: #26263a;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: #6d28d9;
+  border-color: #7c3aed;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #7c3aed;
+}
+
+button.danger {
+  background: #7f1d1d;
+  border-color: #b91c1c;
+}
+
+input[type="text"],
+input[type="number"],
+input[type="password"] {
+  font: inherit;
+  background: #12121c;
+  color: #e6e6f0;
+  border: 1px solid #3a3a55;
+  border-radius: 5px;
+  padding: 6px 8px;
+}
+
+label {
+  font-size: 13px;
+  color: #a9a9c4;
+}

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://dl.viam.dev/module.schema.json",
+  "module_id": "viam-devrel:light-painting",
+  "visibility": "private",
+  "description": "Light-painting controller: traces images into arm motion via the motion service",
+  "models": [
+    {
+      "api": "rdk:service:generic",
+      "model": "viam-devrel:light-painting:light-painting-controller",
+      "short_description": "Receives traced image strokes and draws them with an arm on an adjustable plane"
+    }
+  ],
+  "entrypoint": "bin/light-painting",
+  "build": {
+    "build": "make module.tar.gz",
+    "path": "module.tar.gz",
+    "arch": ["linux/amd64", "linux/arm64", "darwin/arm64"]
+  },
+  "applications": [
+    {
+      "name": "light-painting-app",
+      "type": "single_machine",
+      "entrypoint": "web/dist/index.html"
+    }
+  ],
+  "markdown_link": "README.md"
+}
