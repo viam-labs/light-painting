@@ -1,8 +1,13 @@
-// Command smoketest drives the light-painting-controller on a locally-running
-// viam-server (see test/local-config.json) without the web UI. It exercises
-// get_plane, set_plane, home, a small paint_path, and stop, printing results.
+// Command smoketest drives the light-painting-controller without the web UI.
+// It exercises get_plane, set_plane, home, a small paint_path, and stop.
 //
-// Usage: go run ./cmd/smoketest [address]   (default localhost:8090)
+// Local (insecure) server, e.g. test/local-config.json:
+//
+//	go run ./cmd/smoketest [address]            # default localhost:8090
+//
+// Cloud machine — set credentials and pass the machine FQDN:
+//
+//	VIAM_API_KEY=... VIAM_API_KEY_ID=... go run ./cmd/smoketest <fqdn>:<port>
 package main
 
 import (
@@ -32,9 +37,21 @@ func run(addr string) error {
 	ctx := context.Background()
 	logger := logging.NewLogger("smoketest")
 
+	// Use API-key credentials when provided (cloud machine), else connect
+	// insecurely (local-only viam-server).
+	var dialOpts []rpc.DialOption
+	if key, id := os.Getenv("VIAM_API_KEY"), os.Getenv("VIAM_API_KEY_ID"); key != "" && id != "" {
+		dialOpts = append(dialOpts, rpc.WithEntityCredentials(id, rpc.Credentials{
+			Type:    rpc.CredentialsTypeAPIKey,
+			Payload: key,
+		}))
+	} else {
+		dialOpts = append(dialOpts, rpc.WithInsecure())
+	}
+
 	machine, err := client.New(ctx, addr, logger,
 		client.WithDisableSessions(),
-		client.WithDialOptions(rpc.WithInsecure()),
+		client.WithDialOptions(dialOpts...),
 	)
 	if err != nil {
 		return fmt.Errorf("connect %s: %w", addr, err)

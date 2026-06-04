@@ -1,0 +1,46 @@
+{
+  "modules": [
+    {
+      "type": "local",
+      "name": "light-painting",
+      "executable_path": "/home/shrews/viam/modules/light-painting/bin/light-painting"
+    }
+  ],
+  "components": [
+    {
+      "name": "my_arm",
+      "api": "rdk:component:arm",
+      "model": "rdk:builtin:fake",
+      "attributes": { "arm-model": "xarm6" },
+      "frame": {
+        "parent": "world",
+        "translation": { "x": 0, "y": 0, "z": 0 }
+      }
+    }
+  ],
+  "services": [
+    {
+      "name": "builtin",
+      "api": "rdk:service:motion",
+      "model": "rdk:builtin:builtin"
+    },
+    {
+      "name": "painter",
+      "api": "rdk:service:generic",
+      "model": "viam-devrel:light-painting:light-painting-controller",
+      "attributes": {
+        "arm": "my_arm",
+        "motion_service": "builtin",
+        "drawing_plane": {
+          "origin": { "x": 300, "y": 150, "z": 500 },
+          "width_mm": 300,
+          "height_mm": 300,
+          "approach": { "x": 1, "y": 0, "z": 0 },
+          "up": { "x": 0, "y": 0, "z": 1 }
+        },
+        "lift_mm": 50,
+        "min_segment_mm": 5
+      }
+    }
+  ]
+}
