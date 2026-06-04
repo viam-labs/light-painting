@@ -58,9 +58,10 @@ type Config struct {
 	MotionService string `json:"motion_service,omitempty"`
 	// DrawingPlane is the (adjustable) surface image strokes are mapped onto.
 	DrawingPlane PlaneConfig `json:"drawing_plane"`
-	// LiftMM is how far to retract along the surface normal for light-off travel
-	// moves between strokes. Defaults to 50mm.
-	LiftMM float64 `json:"lift_mm,omitempty"`
+	// LiftMM is how far (mm) to retract along the surface normal for light-off
+	// travel moves between strokes. Unset defaults to 50mm; set it to 0 to keep
+	// the tool on the surface (no approach/retract).
+	LiftMM *float64 `json:"lift_mm,omitempty"`
 	// MinSegmentMM down-samples dense traced paths: consecutive points closer
 	// than this (in mm on the plane) are dropped. Defaults to 5mm.
 	MinSegmentMM float64 `json:"min_segment_mm,omitempty"`
@@ -168,9 +169,12 @@ func newController(
 		return nil, err
 	}
 
-	lift := conf.LiftMM
-	if lift <= 0 {
-		lift = defaultLiftMM
+	lift := defaultLiftMM
+	if conf.LiftMM != nil {
+		lift = *conf.LiftMM
+		if lift < 0 {
+			lift = 0
+		}
 	}
 	minSeg := conf.MinSegmentMM
 	if minSeg <= 0 {
