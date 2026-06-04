@@ -21,7 +21,7 @@ Web app (Svelte)                light-painting-controller (Go)         Viam moti
 | `web/` | Svelte + Vite web app (embedded Viam Application): photo pick, in-browser tracing, plane editor, paint controls |
 | `cmd/module/` | module entrypoint (registers both models) |
 | `cmd/smoketest/` | headless client that drives the controller against a local server |
-| `test/local-config.json` | local-only robot config: simulated `xarm6` arm + builtin motion + visualizer + this module |
+| `test/local-config.json` | local-only robot config: simulated `ur5e` arm + builtin motion + visualizer + this module |
 
 ## How it works
 
@@ -100,7 +100,7 @@ cd web && npm install && npm run build   # web app -> web/dist
 
 ## Local testing with a simulated arm
 
-`test/local-config.json` runs everything locally with a **simulated xArm6** + the
+`test/local-config.json` runs everything locally with a **simulated UR5e** + the
 visualizer — no cloud needed.
 
 ```bash

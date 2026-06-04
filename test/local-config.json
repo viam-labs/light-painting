@@ -5,7 +5,7 @@
       "name": "my_arm",
       "api": "rdk:component:arm",
       "model": "rdk:builtin:simulated",
-      "attributes": { "arm-model": "xarm6", "speed": 1.5, "simulate-time": true },
+      "attributes": { "arm-model": "ur5e", "speed": 1.5, "simulate-time": true },
       "frame": {
         "parent": "world",
         "translation": { "x": 0, "y": 0, "z": 0 }

@@ -13,7 +13,7 @@
       "api": "rdk:component:arm",
       "model": "rdk:builtin:simulated",
       "attributes": {
-        "arm-model": "xarm6",
+        "arm-model": "ur5e",
         "speed": 1.5,
         "simulate-time": true
       },
