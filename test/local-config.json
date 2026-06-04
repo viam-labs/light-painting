@@ -31,7 +31,8 @@
           "width_mm": 300,
           "height_mm": 300,
           "approach": { "x": 1, "y": 0, "z": 0 },
-          "up": { "x": 0, "y": 0, "z": 1 }
+          "up": { "x": 0, "y": 0, "z": 1 },
+          "mirror": true
         },
         "lift_mm": 50,
         "min_segment_mm": 5

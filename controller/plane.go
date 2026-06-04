@@ -38,6 +38,10 @@ type PlaneConfig struct {
 	// Up is the world direction that maps to "up" in the image (-v). Defaults
 	// to {0,0,1} (world Z up).
 	Up *vec3 `json:"up,omitempty"`
+	// Mirror flips the image left-right (u -> 1-u). Use it when the long-exposure
+	// camera views the plane from the opposite side of the arm ("paint from the
+	// back") so the captured image reads the right way around.
+	Mirror bool `json:"mirror,omitempty"`
 }
 
 // plane is the resolved, precomputed drawing plane used at runtime. All vectors
@@ -50,6 +54,7 @@ type plane struct {
 	nOut     r3.Vector // unit, outward surface normal (= -approach)
 	right    r3.Vector // unit, +u direction in world
 	down     r3.Vector // unit, +v direction in world
+	mirror   bool      // when true, u is flipped (1-u) for back-of-plane viewing
 }
 
 func defaultIfZero(v *vec3, def r3.Vector) r3.Vector {
@@ -95,6 +100,7 @@ func newPlane(cfg PlaneConfig) (*plane, error) {
 		nOut:     nOut,
 		right:    right,
 		down:     down,
+		mirror:   cfg.Mirror,
 	}, nil
 }
 
@@ -109,11 +115,17 @@ func (p *plane) config() PlaneConfig {
 		HeightMM: p.height,
 		Approach: &approach,
 		Up:       &up,
+		Mirror:   p.mirror,
 	}
 }
 
 // point returns the world position (mm) for a normalized image coordinate.
+// When the plane is mirrored, u is flipped so the painting reads correctly when
+// viewed from behind the plane (camera on the opposite side from the arm).
 func (p *plane) point(u, v float64) r3.Vector {
+	if p.mirror {
+		u = 1 - u
+	}
 	return p.origin.
 		Add(p.right.Mul(u * p.width)).
 		Add(p.down.Mul(v * p.height))

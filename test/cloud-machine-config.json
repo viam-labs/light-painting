@@ -4,7 +4,7 @@
       "type": "registry",
       "name": "light-painting",
       "module_id": "viam:light-painting",
-      "version": "0.0.4"
+      "version": "0.0.5"
     }
   ],
   "components": [
@@ -57,7 +57,8 @@
             "x": 0,
             "y": 0,
             "z": 1
-          }
+          },
+          "mirror": true
         },
         "lift_mm": 50,
         "min_segment_mm": 5,

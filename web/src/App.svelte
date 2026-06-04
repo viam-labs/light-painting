@@ -93,6 +93,7 @@
     height_mm: 300,
     approach: { x: 1, y: 0, z: 0 },
     up: { x: 0, y: 0, z: 1 },
+    mirror: false,
   });
   let planeAspect = $derived(plane.width_mm / plane.height_mm);
 
@@ -106,6 +107,7 @@
         height_mm: p.height_mm,
         approach: p.approach ?? { x: 1, y: 0, z: 0 },
         up: p.up ?? { x: 0, y: 0, z: 1 },
+        mirror: p.mirror ?? false,
       };
       addLog(`plane ${plane.width_mm}×${plane.height_mm}mm @ ${JSON.stringify(plane.origin)}`);
     } catch (e) {
@@ -318,6 +320,10 @@
             <div class="field sm"><label>z</label><input type="number" bind:value={plane.approach.z} /></div>
           </div>
         </div>
+        <label class="toggle">
+          <input type="checkbox" bind:checked={plane.mirror} />
+          <span>mirror (paint from the back)</span>
+        </label>
         <div class="actions">
           <button onclick={applyPlane}>apply</button>
           <button onclick={refreshPlane}>reload</button>
@@ -626,6 +632,27 @@
     border: 1px solid rgba(255, 111, 94, 0.3);
     border-radius: 3px;
     padding: 10px 12px;
+  }
+
+  .toggle {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 2px 0 12px;
+    cursor: pointer;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .toggle input {
+    accent-color: var(--amber);
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+  }
+  .toggle:hover span {
+    color: var(--amber);
   }
 
   @keyframes rise {

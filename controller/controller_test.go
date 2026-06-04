@@ -49,6 +49,25 @@ func TestPlaneCornerMapping(t *testing.T) {
 	}
 }
 
+func TestPlaneMirrorFlipsU(t *testing.T) {
+	pl, err := newPlane(PlaneConfig{
+		Origin: vec3{X: 300, Y: 150, Z: 500}, WidthMM: 300, HeightMM: 300, Mirror: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Mirrored: u=0 maps to where u=1 lands un-mirrored, and v is unchanged.
+	if got, want := pl.point(0, 0), (r3.Vector{X: 300, Y: -150, Z: 500}); !approxEq(got, want) {
+		t.Errorf("mirrored point(0,0) = %v, want %v", got, want)
+	}
+	if got, want := pl.point(1, 0), (r3.Vector{X: 300, Y: 150, Z: 500}); !approxEq(got, want) {
+		t.Errorf("mirrored point(1,0) = %v, want %v", got, want)
+	}
+	if got, want := pl.point(0.5, 1), (r3.Vector{X: 300, Y: 0, Z: 200}); !approxEq(got, want) {
+		t.Errorf("mirrored point(0.5,1) = %v, want %v", got, want)
+	}
+}
+
 func TestPlaneOrientationPointsAlongApproach(t *testing.T) {
 	pl := defaultTestPlane(t)
 	ov := pl.orientation().OrientationVectorRadians()
