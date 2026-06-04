@@ -20,7 +20,7 @@
       "model": "rdk:builtin:simulated",
       "attributes": {
         "arm-model": "ur5e",
-        "speed": 1.5,
+        "speed": 8,
         "simulate-time": true
       },
       "frame": {
@@ -35,9 +35,8 @@
     {
       "name": "led",
       "api": "rdk:component:generic",
-      "model": "viam:neotrinkey:trinkey",
+      "model": "viam:neotrinkey:trinkey-sim",
       "attributes": {
-        "serial_path": "/dev/serial/by-id/usb-Adafruit_Industries_LLC_NeoPixel_Trinkey_M0_F5A690414155305020312E4C270E12FF-if02",
         "scene": "led-scene"
       },
       "frame": {
@@ -92,7 +91,7 @@
           },
           "mirror": true
         },
-        "lift_mm": 50,
+        "lift_mm": 0.5,
         "min_segment_mm": 5,
         "scene": "painting-scene",
         "led": "led",
