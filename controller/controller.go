@@ -28,7 +28,7 @@ import (
 )
 
 // Model is the resource model for the light-painting controller.
-var Model = resource.NewModel("viam-devrel", "light-painting", "light-painting-controller")
+var Model = resource.NewModel("viam", "light-painting", "light-painting-controller")
 
 const (
 	defaultMotionService = "builtin"

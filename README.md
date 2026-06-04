@@ -15,7 +15,7 @@ Web app (Svelte)                light-painting-controller (Go)         Viam moti
 
 | Path | What |
 |------|------|
-| `controller/` | `viam-devrel:light-painting:light-painting-controller`, a `rdk:service:generic` model |
+| `controller/` | `viam:light-painting:light-painting-controller`, a `rdk:service:generic` model |
 | `controller/plane.go` | the adjustable drawing plane and the normalized-(u,v) → task-space pose mapping |
 | `web/` | Svelte + Vite web app (embedded Viam Application): photo pick, in-browser tracing, plane editor, paint controls |
 | `cmd/module/` | module entrypoint |
@@ -89,6 +89,34 @@ The smoke test prints each command's result and the server log shows the motion 
 planning and executing each pose. To drive it from the browser instead, serve the web app
 (`cd web && npm run dev`) or deploy it as the module's Viam Application and connect to the
 machine.
+
+## Registry & Viam Application
+
+Published to the Viam registry as **`viam:light-painting`** (the model is
+`viam:light-painting:light-painting-controller`). Deploy on a machine with a registry
+module entry instead of a local path:
+
+```json
+"modules": [
+  { "type": "registry", "name": "light-painting", "module_id": "viam:light-painting", "version": "0.0.1" }
+]
+```
+
+The web app ships as the module's Viam Application (`light-painting-app`), hosted at:
+
+```
+https://light-painting-app_viam.viamapplications.com/machine/<machine-id>
+```
+
+Opening that URL (after logging into Viam) connects the app to the given machine using
+cookie-provided credentials — no manual host/key entry needed.
+
+Release a new version after changes:
+
+```bash
+make module-fast                                  # rebuild binary + tar (web/dist included)
+viam module upload --version <semver> --platform linux/amd64 --upload module.tar.gz
+```
 
 ## Roadmap
 

@@ -1,9 +1,10 @@
 {
   "modules": [
     {
-      "type": "local",
+      "type": "registry",
       "name": "light-painting",
-      "executable_path": "/home/shrews/viam/modules/light-painting/bin/light-painting"
+      "module_id": "viam:light-painting",
+      "version": "0.0.1"
     }
   ],
   "components": [
@@ -27,7 +28,7 @@
     {
       "name": "painter",
       "api": "rdk:service:generic",
-      "model": "viam-devrel:light-painting:light-painting-controller",
+      "model": "viam:light-painting:light-painting-controller",
       "attributes": {
         "arm": "my_arm",
         "motion_service": "builtin",
