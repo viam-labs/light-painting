@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@bufbuild/protobuf": "^1.10.1",
-    "@viamrobotics/sdk": "^0.42.0",
+    "@viamrobotics/sdk": "^0.76.0",
     "typescript-cookie": "^1.0.6"
   }
 }
