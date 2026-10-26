@@ -87,13 +87,13 @@ func newScene(
 		strokes: map[int]stroke{},
 	}
 	s.Named = conf.ResourceName().AsNamed()
-	s.SceneServiceBase.Hooks = s
-	s.SceneServiceBase.Logger = logger
-	s.SceneServiceBase.DefaultParentFrame = "world"
+	s.Hooks = s
+	s.Logger = logger
+	s.DefaultParentFrame = "world"
 	// Rotate UUIDs on every update so re-added geometry isn't dropped by the
 	// viewer's REMOVED-UUID cache (otherwise strokes only appear after a manual
 	// 3D refresh). New UUID per change instead of updating the existing one.
-	s.SceneServiceBase.DefaultUUIDStrategy = "versioned"
+	s.DefaultUUIDStrategy = "versioned"
 	if err := s.Reconfigure(ctx, deps, conf); err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func newScene(
 
 func (s *paintingScene) Reconfigure(_ context.Context, _ resource.Dependencies, conf resource.Config) error {
 	// No items at startup — the driver pushes them at paint time.
-	if err := s.SceneServiceBase.ReconfigureWith(nil, 0, "", "world"); err != nil {
+	if err := s.ReconfigureWith(nil, 0, "", "world"); err != nil {
 		return err
 	}
 	visuals.Register(conf.ResourceName().Name, s)
@@ -196,7 +196,7 @@ func (s *paintingScene) rebuildLocked() {
 		})
 	}
 
-	if err := s.SceneServiceBase.SetScene(visuals.SetSceneOpts{ParentFrame: "world"}, vs...); err != nil {
+	if err := s.SetScene(visuals.SetSceneOpts{ParentFrame: "world"}, vs...); err != nil {
 		s.logger.Warnw("painting-scene SetScene failed", "err", err)
 	}
 }

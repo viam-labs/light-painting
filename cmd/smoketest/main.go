@@ -56,10 +56,10 @@ func run(addr string) error {
 	if err != nil {
 		return fmt.Errorf("connect %s: %w", addr, err)
 	}
-	defer machine.Close(ctx)
+	defer func() { _ = machine.Close(ctx) }()
 	fmt.Println("connected:", machine.ResourceNames())
 
-	painter, err := generic.FromRobot(machine, "painter")
+	painter, err := generic.FromProvider(machine, "painter")
 	if err != nil {
 		return fmt.Errorf("get painter service: %w", err)
 	}

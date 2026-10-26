@@ -150,7 +150,7 @@ func newController(
 	if msName == "" {
 		msName = defaultMotionService
 	}
-	motionSvc, err := motion.FromDependencies(deps, msName)
+	motionSvc, err := motion.FromProvider(deps, msName)
 	if err != nil {
 		return nil, fmt.Errorf("getting motion service %q: %w", msName, err)
 	}
